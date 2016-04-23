@@ -42,19 +42,168 @@ The template has the following parameters for customisation: -
 Before processing the template please add the service account 'gluster-recycler' to the privileged scc so that it can run containers in priviledged mode: -
  
 ```
-oc edit scc privileged
+$ oc edit scc privileged
 (add this to the list of users)
 system:serviceaccount:__your namespace__:gluster-recycler
 ```
 Use the following oc command to process the template, substituting your NAMESPACE and GLUSTER_HOSTS e.g:-
  
 ```
-oc process -f recycler-setup-template.yaml -v "NAMESPACE=openshift-infra,GLUSTER_HOSTS=glusterhost001;glusterhost002" | oc create -f -
+$ oc process -f recycler-setup-template.yaml -v "NAMESPACE=openshift-infra,GLUSTER_HOSTS=glusterhost001;glusterhost002" | oc create -f -
 serviceaccount "gluster-recycler" created
 clusterrole "gluster-recycler" created
 clusterrolebinding "gluster-recycler" created
 imagestream "gluster-recycler" created
 deploymentconfig "gluster-recycler" created
+```
+ 
+## Example run
+ 
+Lets create a PersistentVolumeClaim
+ 
+```
+$ cat <<EOT
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-claim
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 3G
+EOT | oc create -f -
+persistentvolumeclaim "test-claim" created
+```
+ 
+It is bound to a persistent volume: -
+ 
+```
+$ oc get pv glsvol-5g-0020 -o yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  creationTimestamp: 2016-04-23T15:26:09Z
+  name: test-claim
+  namespace: infrastructure-builders
+  resourceVersion: "9440128"
+  selfLink: /api/v1/namespaces/infrastructure-builders/persistentvolumeclaims/test-claim
+  uid: b4281e0e-0967-11e6-8f57-0050568f7a94
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 3G
+  volumeName: glsvol-5g-0020
+status:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 5Gi
+  phase: Bound
+ 
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  creationTimestamp: 2016-04-14T08:58:16Z
+  name: glsvol-5g-0020
+  resourceVersion: "9440129"
+  selfLink: /api/v1/persistentvolumes/glsvol-5g-0020
+  uid: 06e2c463-021f-11e6-933b-0050568f9ceb
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 5Gi
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: test-claim
+    namespace: infrastructure-builders
+    resourceVersion: "9440125"
+    uid: b4281e0e-0967-11e6-8f57-0050568f7a94
+  glusterfs:
+    endpoints: glusterfs-cluster
+    path: glsvol-5g-0020
+  persistentVolumeReclaimPolicy: Recycle
+status:
+  phase: Bound
+```
+ 
+Now if we remove our claim the persistent volume goes into a failed state: -
+ 
+```
+$ oc delete pvc test-claim
+persistentvolumeclaim "test-claim" deleted
+ 
+$ oc get pv glsvol-5g-0020 -o yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  creationTimestamp: 2016-04-14T08:58:16Z
+  name: glsvol-5g-0020
+  resourceVersion: "9440304"
+  selfLink: /api/v1/persistentvolumes/glsvol-5g-0020
+  uid: 06e2c463-021f-11e6-933b-0050568f9ceb
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 5Gi
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: test-claim
+    namespace: infrastructure-builders
+    resourceVersion: "9440125"
+    uid: b4281e0e-0967-11e6-8f57-0050568f7a94
+  glusterfs:
+    endpoints: glusterfs-cluster
+    path: glsvol-5g-0020
+  persistentVolumeReclaimPolicy: Recycle
+status:
+  message: no volume plugin matched
+```
+ 
+Watching the logs on the gluster-recycler container shows the volume being picked up and recycled: -
+ 
+```
+97 persistent volumes found
+51      *****
+52      Attempting to re-cycle volume glsvol-5g-0020
+53      *****
+54      WARNING: getfattr not found, certain checks will be skipped..
+55      Successfully mounted volume glsvol-5g-0020 to /mnt
+56      Recreating volume glsvol-5g-0020 in kubernetes...
+57      Successfully re-cycled volume glsvol-5g-0020
+58      Finished recycle run
+```
+ 
+The volume is now available for re-use: -
+ 
+```
+$ oc get pv glsvol-5g-0020 -o yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  creationTimestamp: 2016-04-23T15:33:32Z
+  name: glsvol-5g-0020
+  resourceVersion: "9440467"
+  selfLink: /api/v1/persistentvolumes/glsvol-5g-0020
+  uid: bcbc7ba7-0968-11e6-8b2d-0050568f56a5
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 5Gi
+  glusterfs:
+    endpoints: glusterfs-cluster
+    path: glsvol-5g-0020
+  persistentVolumeReclaimPolicy: Recycle
+status:
+  phase: Available
 ```
  
 ## Building the container
