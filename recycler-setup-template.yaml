@@ -1,0 +1,114 @@
+---
+kind: Template
+apiVersion: v1
+metadata:
+  annotations:
+    description: "Setup for glusterfs persistent volume recycler.  Creates all the required objects and deploys the pod."
+    version: '1.0.0'
+  name: setup-recycler
+labels:
+  template: "gluster-recycler"
+parameters:
+- description: 'The name of the namespace being deployed into (sorry, templates cant look this up)'
+  name: NAMESPACE
+  required: true
+- description: 'A semi-colon ";" separated list of glusterfs hosts that make up your glusterfs cluster (only one cluster supported).'
+  name: GLUSTER_HOSTS
+  required: true
+- description: 'Interval in seconds between recycler runs (defaults to every 5 minutes)'
+  name: INTERVAL
+  required: false
+  value: "300"
+- description: 'Enable extra logging for debugging (defaults to false)'
+  name: DEBUG
+  required: false
+  value: "false"
+- description: 'Choose an alternative repository and/or image'
+  name: IMAGE
+  required: false
+  value: "docker.io/davemccormickig/gluster-recycler"
+objects:
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: gluster-recycler
+- kind: ClusterRole
+  apiVersion: v1
+  metadata:
+    name: gluster-recycler
+  rules:
+  - verbs:
+    - create
+    - delete
+    - get
+    - list
+    - replace
+    - update
+    attributeRestrictions:
+    apiGroups:
+    resources:
+    - persistentvolumes
+- apiVersion: v1
+  groupNames: null
+  kind: ClusterRoleBinding
+  metadata:
+    name: gluster-recycler
+  roleRef:
+    name: gluster-recycler
+  subjects:
+  - kind: ServiceAccount
+    name: gluster-recycler
+    namespace: ${NAMESPACE}
+  userNames:
+  - system:serviceaccount:${NAMESPACE}:gluster-recycler
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: gluster-recycler
+  spec:
+    dockerImageRepository: ${IMAGE}
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+    name: gluster-recycler
+  spec:
+    replicas: 1
+    selector:
+      name: gluster-recycler
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          name: gluster-recycler
+        name: gluster-recycler
+      spec:
+        containers:
+        - name: gluster-recycler
+          image: ${IMAGE}
+          imagePullPolicy: Always
+          env:
+          - name: INTERVAL
+            value: ${INTERVAL}
+          - name: CLUSTER
+            value: ${GLUSTER_HOSTS}
+          - name: DEBUG
+            value: ${DEBUG}
+          args:
+            - "bash"
+            - "-c"
+            - "/recycler.sh"
+          securityContext:
+            privileged: true
+        restartPolicy: Always
+        serviceAccountName: gluster-recycler
+    triggers:
+    - type: ImageChange
+      imageChangeParams:
+        automatic: true
+        from:
+          kind: ImageStream
+          name: gluster-recycler
+        containerNames:
+        - gluster-recycler
