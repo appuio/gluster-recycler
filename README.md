@@ -165,20 +165,21 @@ spec:
   persistentVolumeReclaimPolicy: Recycle
 status:
   message: no volume plugin matched
+  phase: Failed
 ```
  
 Watching the logs on the gluster-recycler container shows the volume being picked up and recycled: -
  
 ```
 97 persistent volumes found
-51      *****
-52      Attempting to re-cycle volume glsvol-5g-0020
-53      *****
-54      WARNING: getfattr not found, certain checks will be skipped..
-55      Successfully mounted volume glsvol-5g-0020 to /mnt
-56      Recreating volume glsvol-5g-0020 in kubernetes...
-57      Successfully re-cycled volume glsvol-5g-0020
-58      Finished recycle run
+*****
+Attempting to re-cycle volume glsvol-5g-0020
+*****
+WARNING: getfattr not found, certain checks will be skipped..
+Successfully mounted volume glsvol-5g-0020 to /mnt
+Recreating volume glsvol-5g-0020 in kubernetes...
+Successfully re-cycled volume glsvol-5g-0020
+Finished recycle run
 ```
  
 The volume is now available for re-use: -
