@@ -10,11 +10,11 @@ The gluster-recycler is at heart a simple shell script that runs in a container 
  
 ## Requirements
  
-### Service Account
+#### Service Account
  
 The recycler script accesses the Kubernetes API using the serviceaccount which the pod/container was started with, and the preferred installation is to run it with a special service account which has been appropriately provisioned so that it can access and modify persistent volumes and nothing more.
  
-### Privileged
+#### Privileged
  
 The recycler container **must** unfortunately be run in privileged mode because the fuse client will not properly work without it.  Also, it makes sense that the recycler runs as root so that it has access to remove all the files that it finds on the volumes which it is recycling.
  
@@ -80,7 +80,7 @@ persistentvolumeclaim "test-claim" created
 It is bound to a persistent volume: -
  
 ```
-$ oc get pv glsvol-5g-0020 -o yaml
+$ oc get pvc test-claim -o yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -103,7 +103,8 @@ status:
   capacity:
     storage: 5Gi
   phase: Bound
- 
+
+$ oc get pv glsvol-5g-0020 -o yaml
 apiVersion: v1
 kind: PersistentVolume
 metadata:
