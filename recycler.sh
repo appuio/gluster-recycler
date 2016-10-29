@@ -153,7 +153,7 @@ do
         if [[ "$is_gluster" != "" ]]; then
           [[ "$DEBUG" == "true" ]] && echo "Volume $vol_name is a glusterfs volume and is in a failed state!"
           message=`echo $volume_with_status | $JQ '.status.message'`
-          if [[ "$message" == "no volume plugin matched" ]]; then
+          if [[ "$message" == "no volume plugin matched" ]] || [[ "$message" == "No recycler plugin found for the volume!" ]]; then
             echo "*****"
             echo "Attempting to re-cycle volume $vol_name"
             echo "*****"
