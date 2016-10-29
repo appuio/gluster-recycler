@@ -38,6 +38,7 @@ The template has the following parameters for customisation: -
 | INTERVAL                 | The time in seconds to wait between recycler runs.                                                            | 300                                        |
 | DEBUG                    | Set to "true" in order to log more detail of recycler actions including API calls and responses.              | false                                      |
 | IMAGE                    | Use an alternative gluster-recycler image than the one on dockerhub.                                          | docker.io/davemccormickig/gluster-recycler |
+| SOURCE_REPO              | Source Repo for recycler                                                                                      |                                            |
  
 Before processing the template please add the service account 'gluster-recycler' to the privileged scc so that it can run containers in priviledged mode: -
  
