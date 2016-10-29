@@ -6,5 +6,4 @@ RUN INSTALL_PKGS="bash tar jq" && \
     yum clean all
 
 ADD recycler.sh /
-USER 1001
 CMD /recycler.sh
