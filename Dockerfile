@@ -1,9 +1,9 @@
 FROM gluster/gluster-centos
 
-RUN INSTALL_PKGS="bash tar jq" && \
-    yum install -y $INSTALL_PKGS && \
+RUN INSTALL_PKGS="bash tar jq findutils" && \
+    dnf install -y $INSTALL_PKGS && \
     rpm -V $INSTALL_PKGS && \
-    yum clean all
+    dnf clean all
 
 ADD recycler.sh /
 CMD /recycler.sh
