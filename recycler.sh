@@ -135,7 +135,8 @@ do
  
     # interate over the persistent volumes a volume at a time
     num_vols=`echo $vol_list | $JQ '.items | length'`
-    echo "$num_vols persistent volumes found"
+    currdate=`date -R`
+    echo "$currdate // $num_vols persistent volumes found"
     for i in $(seq 0 $((num_vols - 1))); do
  
       # Only process volumes which are in failed phase, are glusterfs and have a message of "no volume plugin matched"
