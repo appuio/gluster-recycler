@@ -1,4 +1,4 @@
-FROM gluster/gluster-centos
+FROM gluster/gluster-centos:latestclient
 
 RUN INSTALL_PKGS="bash tar jq findutils" && \
     dnf install -y $INSTALL_PKGS && \
