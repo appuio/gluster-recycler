@@ -36,6 +36,7 @@ The template has the following parameters for customisation: -
 | NAMESPACE (required)     | In order to create the clusterrolebinding we must inform the template which namespace you are installing into |                                            |
 | GLUSTER_HOSTS (required) | A semi-colon separated list of your gluster hosts                                                             |                                            |
 | INTERVAL                 | The time in seconds to wait between recycler runs.                                                            | 300                                        |
+| DELAY                    | The time in seconds to wait before recycling a volume after it failed.                                        | 0                                          |
 | DEBUG                    | Set to "true" in order to log more detail of recycler actions including API calls and responses.              | false                                      |
 | IMAGE                    | Use an alternative gluster-recycler image than the one on dockerhub.                                          | docker.io/davemccormickig/gluster-recycler |
 | SOURCE_REPO              | Source Repo for recycler                                                                                      |                                            |

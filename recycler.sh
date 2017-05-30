@@ -20,36 +20,43 @@
 #  mount volume
 #  remove all contents
 #  delete and re-add the volume
- 
+
 #####################################################################################
 # Inputs are ENVIRONMENT VARIABLES
 #
 # CLUSTER - the address string of the gluster cluster, e.g.
-# INTERVAL - the pause between recyle runs (default 5 minutes)
+# INTERVAL - the pause between recyle runs in seconds (default 5 minutes)
+# DELAY - number of seconds to delay recycling after pv has first been seen in failed state
 # DEBUG - set to 'true' to enable detailed logging.
- 
+
 CAOPTS="-k"
 JQ="jq -c -M -r"
- 
+
+DELAY="${DELAY:-0}"
+if [[ ! $DELAY =~ [0-9]+ ]]; then
+  DELAY="0"
+  echo "DELAY is not a number, ignoring!" >&2
+fi
+
 echo "glusterfs recycler is starting up"
- 
+
 # Check we can find the Kubernetes service
 if [[ "${KUBERNETES_SERVICE_HOST}" == "" || "${KUBERNETES_SERVICE_PORT}" == "" ]]; then
   echo "ERROR! The recycler needs to be able to find the Kubernetes API from the variables KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT."
   echo "Are you running this container via Kubernetes/Openshift?  You can pass these as environment variables if you need to."
   exit 1
 fi
- 
+
 # Check that we have access to jq
 if [[ ! -e "/usr/bin/jq" && ! -e "/usr/local/bin/jq" ]]; then
   echo "ERROR! The recycler needs access to the 'jq' utility to run - it should be included in /usr/bin or /usr/local/bin of this container!"
   exit 1
 fi
- 
+
 # Go find our serviceaccount token
 KUBE_TOKEN=`cat /var/run/secrets/kubernetes.io/serviceaccount/token`
 [[ "$DEBUG" == "true" ]] && echo "Service Account Token is: $KUBE_TOKEN"
- 
+
 # Select the ca options for curling the Kubernetes API
 [[ "$DEBUG" == "true" ]] && echo "Looking for /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 if [ -e /var/run/secrets/kubernetes.io/serviceaccount/ca.crt ]; then
@@ -60,11 +67,11 @@ if [ -e /var/run/secrets/kubernetes.io/serviceaccount/ca.crt ]; then
 else
   [[ "$DEBUG" == "true" ]] && echo "Could not find /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with -k option"
 fi
- 
+
 #API
 CURL="curl -s -H \"Authorization: bearer $KUBE_TOKEN\" $CAOPTS"
 HOSTURL="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
- 
+
 # Check that the CLUSTER variable has been set
 if [[ "$CLUSTER" == "" ]]; then
   echo "Error: You MUST set the environment variable CLUSTER with the address of your gluster cluster!"
@@ -76,31 +83,36 @@ fi
 # Allow people to use pipe to separate the gluster hosts with a ;
 # because using a ',' in openshift template parameters is hard.
 CLUSTER=${CLUSTER/;/,}
- 
+
 # INTERVAL defaults to 5 minutes
 [[ "$INTERVAL" == "" ]] && INTERVAL=300
- 
+
+echo "checking for failed volumes every ${INTERVAL} seconds"
+echo "delaying recycling of failed volumes for ${DELAY} seconds"
+echo
+
 function api_call {
   local method=$1
   local call=$2
   local body=$3
- 
+  local type="${4:-application/json}"
+
   [[ "$DEBUG" == "true" ]] && echo >&2 "api_call method=$method call=$call body=$body"
- 
+
   # set up the appropriate curl command
   if [[ "$body" == "" ]]; then
     local curl_command="$CURL -X $method $opts ${HOSTURL}${call}"
   else
-    local curl_command="$CURL -H \"Content-Type: application/json\" -X $method -d '${body}' ${HOSTURL}${call}"
+    local curl_command="$CURL -H \"Content-Type: $type\" -X $method -d '${body}' ${HOSTURL}${call}"
   fi
   [[ "$DEBUG" == "true" ]] && echo >&2 "command: $curl_command"
- 
+
   # In READONLY mode only allow GET's to run against the API
   if [[ "$READONLY" == "true" && "$method" != "GET" ]]; then
     echo >&2 "READONLY MODE - would have performed this API call: $method $call"
     return 0
   fi
- 
+
   # Execute the API call via curl and check for curl errors.
   local command_result=`eval $curl_command`
   if [ "$?" -ne "0" ]; then
@@ -109,7 +121,7 @@ function api_call {
     return 1
   fi
   [[ "$DEBUG" == "true" ]] && echo >&2 "result: $command_result"
- 
+
   # Look at response and check for Kubernetes errors.
   local api_result=`echo "$command_result" | $JQ '.status'`
   [[ "$DEBUG" == "true" ]] && echo >&2 "api_result: $api_result"
@@ -122,23 +134,23 @@ function api_call {
     return 0
   fi
 }
- 
+
 # start the loop
 while true
 do
- 
+
   # Get a list of physical volumes and their status
   [[ "$DEBUG" == "true" ]] && echo "Getting a list of persistentvolumes..."
   vol_list=`api_call GET /api/v1/persistentvolumes`
   if [ "$?" -eq "0" ]; then
     [[ "$DEBUG" == "true" ]] && echo "result of api call: $vol_list"
- 
+
     # interate over the persistent volumes a volume at a time
     num_vols=`echo $vol_list | $JQ '.items | length'`
-    currdate=`date -R`
+    currdate=`date -Is`
     echo "$currdate // $num_vols persistent volumes found"
     for i in $(seq 0 $((num_vols - 1))); do
- 
+
       # Only process volumes which are in failed phase, are glusterfs and have a message of "no volume plugin matched"
       # so that we only try to recycle volumes which have been given back to the cluster and don't have a valid
       # recycler plugin.
@@ -154,11 +166,14 @@ do
         if [[ "$is_gluster" != "" ]]; then
           [[ "$DEBUG" == "true" ]] && echo "Volume $vol_name is a glusterfs volume and is in a failed state!"
           message=`echo $volume_with_status | $JQ '.status.message'`
-          if [[ "$message" == "no volume plugin matched" ]] || [[ "$message" == "No recycler plugin found for the volume!" ]]; then
+          failed_at=`echo $volume_with_status | $JQ -r '.metadata.annotations["appuio.ch/failed-at"]'`
+          now_minus_delay=`date -Is -d-${DELAY}sec`
+          if [[ ("$message" == "no volume plugin matched" || "$message" == "No recycler plugin found for the volume!") &&
+                ("$DELAY" == "0" || "$failed_at" != "null" && "$now_minus_delay" > "$failed_at") ]]; then
             echo "*****"
             echo "Attempting to re-cycle volume $vol_name"
             echo "*****"
- 
+
             # mount the volume
             [[ "$DEBUG" == "true" ]] && echo "Mounting Volume: mount.glusterfs ${CLUSTER}:${vol_name} /mnt"
             mount.glusterfs ${CLUSTER}:${vol_name} /mnt
@@ -170,7 +185,7 @@ do
               [[ "$DEBUG" == "true" ]] && echo "Volume contains the following files:-"
               [[ "$DEBUG" == "true" ]] && find /mnt
             fi
- 
+
             # delete all the files with -mindepth 1 so we don't try and remove /mnt
             [[ "$DEBUG" == "true" ]] && echo "Deleting all files and dirs: find /mnt -mindepth 1 -not -path \"/mnt/.trashcan*\" -delete"
             find /mnt -mindepth 1 -not -path "/mnt/.trashcan*" -delete
@@ -179,7 +194,7 @@ do
             else
                 echo "Recreating volume $vol_name in kubernetes..."
                 #vol_def=`echo $volume_with_status | $JQ '- .status .metadata.selflink, .metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp ]'`
-                vol_def=`echo $volume_with_status | $JQ 'del(.status) | del(.spec.claimRef) | del(.metadata.selfLink) | del(.metadata.uid) | del(.metadata.resourceVersion) | del(.metadata.creationTimestamp)'`
+                vol_def=`echo $volume_with_status | $JQ 'del(.status) | del(.spec.claimRef) | del(.metadata.selfLink) | del(.metadata.uid) | del(.metadata.resourceVersion) | del(.metadata.creationTimestamp) | del(.metadata.annotations)'`
                 [[ "$DEBUG" == "true" ]] && echo "Sanitized volume config definition is:-"
                 [[ "$DEBUG" == "true" ]] && echo "$vol_def"
                 [[ "$DEBUG" == "true" ]] && echo "Deleting $vol_name"
@@ -200,23 +215,32 @@ do
                   echo "$delete_result"
                 fi
             fi
- 
+
             [[ "$DEBUG" == "true" ]] && echo "unmounting $vol_name"
             umount /mnt
+          elif [[ "$DELAY" != "0" && "$failed_at" == "null" ]]; then
+            failed_at=`date -Is`
+            patch_result=`api_call PATCH /api/v1/persistentvolumes/${vol_name} '{"metadata":{"annotations":{"appuio.ch/failed-at":"'${failed_at}'"}}}' application/strategic-merge-patch+json`
+            if [ "$?" -eq "0" ]; then
+              echo "Annotated ${vol_name} with failed timestamp: ${failed_at}"
+            else
+              echo "Couldn't annotate ${vol_name} with failed timestamp. The response was:-"
+              echo "$patch_result"
+            fi
           fi
         fi
       fi
     done
     echo "Finished recycle run"
- 
+
   else
     echo "ERROR! Could not get list of volumes from the API!"
     sleep 60
     exit 1
   fi
- 
+
   # wait for next run through
   sleep $INTERVAL
- 
+
 done
 exit 0
