@@ -1,0 +1,23 @@
+---
+- name: Create project for Gluster recycler
+  openshift_project:
+    name: "{{ namespace }}"
+
+- name: Add gluster-recycler service account to privileged scc
+  openshift_policy:
+    sccs: privileged
+    users: "system:serviceaccount:{{ namespace }}:gluster-recycler"
+
+- name: Instantiate recycler template
+  openshift_resource:
+    namespace: "{{ namespace }}"
+    template: "{{ role_path }}/files/recycler-template.yml"
+    app_name: gluster-recycler
+    arguments:
+      NAMESPACE: "{{ namespace }}"
+      GLUSTER_HOSTS: "{{ gluster_hosts | mandatory }}"
+      SOURCE_REPO: "{{ role_src | default('https://github.com/appuio/gluster-recycler.git') }}"
+      SOURCE_REF: "{{ role_version | default('master') }}"
+      INTERVAL: "{{ interval | default('300') }}"
+      DELAY: "{{ delay | default('0') }}"
+      TIMEZONE: "{{ timezone | default(appuio_container_timezone) | default('UTC') }}"
