@@ -74,6 +74,7 @@ objects:
     - list
     - replace
     - update
+    - patch
     attributeRestrictions:
     apiGroups:
     resources:
