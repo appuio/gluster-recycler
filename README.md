@@ -222,3 +222,44 @@ ADD jq-linux64 /usr/bin/jq
 ADD recycler.sh /
  
 ```
+
+## Ansible Role
+
+This repository contains an Ansible role for automatic installation of the Gluster recycler.
+
+### Requirements
+
+One of:
+
+* OpenShift Enterprise 3.2
+* OpenShift Container Platform 3.3 or later
+* OpenShift Origin M5 1.3 or later.
+
+### Role Variables
+
+| Name          | Default value                                              | Description                                                            |
+|---------------|------------------------------------------------------------|------------------------------------------------------------------------|
+| src           | *role_src*, https://github.com/appuio/gluster-recycler.git | Source repository to from the Gluster recycler from                    |
+| version       | *role_version*, master                                     | Version of the Gluster recycler to build, i.e. Git ref of repo above   |
+| namespace     | appuio-infra                                               | namespace to install Gluster recycler into                             |
+| gluster_hosts | None (Required)                                            | Semi-colon separated list of gluster hosts                             |
+| interval      | 300                                                        | The time in seconds to wait between recycler runs.                     |
+| delay         | 0                                                          | The time in seconds to wait before recycling a volume after it failed. |
+| timezone      | *appuio_container_timezone*, UTC                           | Timezone of the container                                              |
+
+In case of multiple default values the first defined value is used.
+
+### Dependencies
+
+* <https://github.com/appuio/ansible-module-openshift>
+
+### Example Usage
+
+`playbook.yml`:
+
+```yaml
+roles:
+- role: ansible-role-openshift-gluster-recycler
+  gluster_hosts: gluster1.example.com;gluster2.example.com
+  delay: "{{ 7 * 24 * 60 * 60 }}"  # 7 days
+```
