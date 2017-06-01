@@ -16,8 +16,8 @@
     arguments:
       NAMESPACE: "{{ namespace }}"
       GLUSTER_HOSTS: "{{ gluster_hosts | mandatory }}"
-      SOURCE_REPO: "{{ role_src | default('https://github.com/appuio/gluster-recycler.git') }}"
-      SOURCE_REF: "{{ role_version | default('master') }}"
+      SOURCE_REPO: "{{ src | default(role_src) | default('https://github.com/appuio/gluster-recycler.git') }}"
+      SOURCE_REF: "{{ version | default(role_version) | default('master') }}"
       INTERVAL: "{{ interval | default('300') }}"
       DELAY: "{{ delay | default('0') }}"
       TIMEZONE: "{{ timezone | default(appuio_container_timezone) | default('UTC') }}"
