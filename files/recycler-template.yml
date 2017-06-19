@@ -27,6 +27,10 @@ parameters:
   name: DEBUG
   required: false
   value: "false"
+- description: Base image for recycler, registry.access.redhat.com/rhel7 or centos:7, defaults to the former
+  name: BASE_IMAGE
+  required: true
+  value: registry.access.redhat.com/rhel7
 - description: 'Source Repo for recycler'
   name: SOURCE_REPO
   required: true
@@ -43,17 +47,18 @@ objects:
 - apiVersion: v1
   kind: ImageStream
   metadata:
-    name: centos-gluster
+    name: gluster-recycler-base
   spec:
     importPolicy:
       scheduled:
         true
     tags:
-      - name: latestclient
+      - name: latest
         from:
           kind: DockerImage
-          name: 'gluster/gluster-centos:latestclient'
-    dockerImageRepository: 'gluster/gluster-centos:latestclient'
+          name: ${BASE_IMAGE}
+        importPolicy:
+          scheduled: true
 - apiVersion: v1
   kind: ImageStream
   metadata:
@@ -117,7 +122,7 @@ objects:
       dockerStrategy:
         from:
           kind: ImageStreamTag
-          name: centos-gluster:latestclient
+          name: gluster-recycler-base:latest
     triggers:
     - type: ConfigChange
     - imageChange: {}

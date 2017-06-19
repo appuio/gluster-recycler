@@ -16,6 +16,7 @@
     arguments:
       NAMESPACE: "{{ namespace }}"
       GLUSTER_HOSTS: "{{ gluster_hosts | mandatory }}"
+      BASE_IMAGE: "{{ ((deployment_type | default(openshift_deployment_type)) == 'origin') | ternary('centos:7', 'registry.access.redhat.com/rhel7') }}"
       SOURCE_REPO: "{{ src | default(role_src) | default('https://github.com/appuio/gluster-recycler.git') }}"
       SOURCE_REF: "{{ version | default(role_version) | default('master') }}"
       INTERVAL: "{{ interval | default('300') }}"
