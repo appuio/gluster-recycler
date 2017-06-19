@@ -159,6 +159,7 @@ do
       [[ "$DEBUG" == "true" ]] && echo "Examining the following volume:-"
       [[ "$DEBUG" == "true" ]] && echo "$volume_with_status"
       vol_name=`echo $volume_with_status | $JQ '.metadata.name'`
+      vol_path=`echo $volume_with_status | $JQ '.spec.glusterfs.path'`
       is_failed=`echo $volume_with_status | $JQ '.status.phase'`
       if [[ "$is_failed" == "Failed" ]]; then
         [[ "$DEBUG" == "true" ]] && echo "Volume $vol_name is in Failed state!"
@@ -175,8 +176,8 @@ do
             echo "*****"
 
             # mount the volume
-            [[ "$DEBUG" == "true" ]] && echo "Mounting Volume: mount.glusterfs ${CLUSTER}:${vol_name} /mnt"
-            mount.glusterfs ${CLUSTER}:${vol_name} /mnt
+            [[ "$DEBUG" == "true" ]] && echo "Mounting Volume: mount.glusterfs ${CLUSTER}:${vol_path} /mnt"
+            mount.glusterfs ${CLUSTER}:${vol_path} /mnt
             if [[ "$?" != "0" ]]; then
               echo "ERROR! Unable to mount the volume."
               continue
