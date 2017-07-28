@@ -259,7 +259,7 @@ In case of multiple default values the first defined value is used.
 
 ```yaml
 roles:
-- role: ansible-role-openshift-gluster-recycler
+- role: gluster-recycler
   gluster_hosts: gluster1.example.com;gluster2.example.com
   delay: "{{ 7 * 24 * 60 * 60 }}"  # 7 days
 ```
