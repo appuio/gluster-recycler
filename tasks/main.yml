@@ -5,8 +5,10 @@
 
 - name: Add gluster-recycler service account to privileged scc
   openshift_policy:
-    sccs: privileged
-    users: "system:serviceaccount:{{ namespace }}:gluster-recycler"
+    sccs:
+      - privileged
+    users:
+      - "system:serviceaccount:{{ namespace }}:gluster-recycler"
 
 - name: Instantiate recycler template
   openshift_resource:
