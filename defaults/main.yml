@@ -1,3 +1,2 @@
 ---
 namespace: appuio-infra
-openshift_deployment_type: openshift-enterprise
