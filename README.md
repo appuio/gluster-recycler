@@ -54,15 +54,15 @@ finds on the volumes which it is recycling.
 
 ## Role Variables
 
-| Name          | Default value                                              | Description                                                            |
-|---------------|------------------------------------------------------------|------------------------------------------------------------------------|
-| src           | *role_src*, https://github.com/appuio/gluster-recycler.git | Source repository to from the Gluster recycler from                    |
-| version       | *role_version*, master                                     | Version of the Gluster recycler to build, i.e. Git ref of repo above   |
-| namespace     | appuio-infra                                               | namespace to install Gluster recycler into                             |
-| gluster_hosts | None (Required)                                            | Semi-colon separated list of gluster hosts                             |
-| interval      | 300                                                        | The time in seconds to wait between recycler runs.                     |
-| delay         | 0                                                          | The time in seconds to wait before recycling a volume after it failed. |
-| timezone      | *appuio_container_timezone*, UTC                           | Timezone of the container                                              |
+| Name                                  | Default value                                  | Description                                                          |
+|---------------------------------------|------------------------------------------------|----------------------------------------------------------------------|
+| appuio_gluster_recycler_repo          | https://github.com/appuio/gluster-recycler.git | Source repository to build the Gluster recycler from                 |
+| appuio_gluster_recycler_repo_rev      | master                                         | Version of the Gluster recycler to build, i.e. Git ref of repo above |
+| appuio_gluster_recycler_namespace     | appuio-infra                                   | Namespace to install Gluster recycler into                           |
+| appuio_gluster_recycler_gluster_hosts | None (required)                                | Semi-colon separated list of gluster hosts                           |
+| appuio_gluster_recycler_interval      | 300                                            | Time in seconds to wait between recycler runs                        |
+| appuio_gluster_recycler_delay         | 0                                              | Time in seconds to wait before recycling a volume after it failed    |
+| appuio_gluster_recycler_timezone      | *appuio_container_timezone*, UTC               | Timezone of the container                                            |
 
 
 ## Dependencies
@@ -77,6 +77,6 @@ finds on the volumes which it is recycling.
 ```yaml
 roles:
 - role: gluster-recycler
-  gluster_hosts: gluster1.example.com;gluster2.example.com
-  delay: "{{ 7 * 24 * 60 * 60 }}"  # 7 days
+  appuio_gluster_recycler_gluster_hosts: gluster1.example.com;gluster2.example.com
+  appuio_gluster_recycler_delay: "{{ 7 * 24 * 60 * 60 }}"  # 7 days
 ```

@@ -1,2 +1,8 @@
 ---
-namespace: appuio-infra
+appuio_gluster_recycler_namespace: appuio-infra
+appuio_gluster_recycler_repo: https://github.com/appuio/gluster-recycler.git
+appuio_gluster_recycler_repo_rev: master
+appuio_gluster_recycler_base_image: "{{ ((deployment_type | default(openshift_deployment_type)) == 'origin') | ternary('docker.io/library/centos:7', 'registry.access.redhat.com/rhel7') }}"
+appuio_gluster_recycler_interval_seconds: 300
+appuio_gluster_recycler_delay_seconds: 0
+appuio_gluster_recycler_timezone: "{{ appuio_container_timezone | default('UTC') }}"
