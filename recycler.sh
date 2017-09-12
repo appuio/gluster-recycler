@@ -341,14 +341,19 @@ recycle_volume() {
 
   echo "Successfully mounted volume ${vol_name} to ${mountdir}"
 
+  local recreate=
   if clear_volume "$mountdir"; then
-    recreate_volume "$volfile"
+    recreate=yes
   fi
 
   if is_debug; then
     echo "Unmounting $vol_name"
   fi
   umount "$mountdir"
+
+  if [[ -n "$recreate" ]]; then
+    recreate_volume "$volfile"
+  fi
 }
 
 # start the loop
