@@ -101,7 +101,7 @@ function api_call {
 
   # set up the appropriate curl command
   if [[ "$body" == "" ]]; then
-    local curl_command="$CURL -X $method $opts ${HOSTURL}${call}"
+    local curl_command="$CURL -X $method ${HOSTURL}${call}"
   else
     local curl_command="$CURL -H \"Content-Type: $type\" -X $method -d '${body}' ${HOSTURL}${call}"
   fi
