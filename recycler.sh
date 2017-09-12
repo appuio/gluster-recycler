@@ -42,6 +42,10 @@ is_debug() {
   [[ "$DEBUG" == true ]]
 }
 
+if is_debug; then
+  set -x
+fi
+
 echo "glusterfs recycler is starting up"
 
 # Check we can find the Kubernetes service
