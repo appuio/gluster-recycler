@@ -61,14 +61,14 @@ tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
 # Go find our serviceaccount token
-KUBE_TOKEN=`cat /var/run/secrets/kubernetes.io/serviceaccount/token`
+KUBE_TOKEN=$(< /var/run/secrets/kubernetes.io/serviceaccount/token)
 is_debug && echo "Service Account Token is: $KUBE_TOKEN"
 
 # Select the ca options for curling the Kubernetes API
 is_debug && echo "Looking for /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 if [ -e /var/run/secrets/kubernetes.io/serviceaccount/ca.crt ]; then
   CAOPTS=( --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt )
-  CERT=`cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt`
+  CERT=$(< /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
   is_debug && echo "Found /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
   is_debug && echo "CA Certificate is $CERT "
 else
@@ -133,7 +133,7 @@ function api_call {
   is_debug && echo >&2 "result: $command_result"
 
   # Look at response and check for Kubernetes errors.
-  local api_result=`echo "$command_result" | $JQ '.status'`
+  local api_result=$(echo "$command_result" | $JQ '.status')
   is_debug && echo >&2 "api_result: $api_result"
   if [[ "$api_result" == "Failure" ]]; then
     echo >&2 "ERROR API CALL FAILED!:-"
@@ -353,7 +353,7 @@ do
 
   # Get a list of physical volumes and their status
   is_debug && echo "Getting a list of persistentvolumes..."
-  vol_list=`api_call GET /api/v1/persistentvolumes`
+  vol_list=$(api_call GET /api/v1/persistentvolumes)
   if [ "$?" -eq "0" ]; then
     is_debug && echo "result of api call: $vol_list"
 
