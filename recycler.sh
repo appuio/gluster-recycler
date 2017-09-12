@@ -29,7 +29,6 @@
 # DELAY - number of seconds to delay recycling after pv has first been seen in failed state
 # DEBUG - set to 'true' to enable detailed logging.
 
-JQ="jq -c -M -r"
 ANNOTATION_FAILED_AT=appuio.ch/failed-at
 
 DELAY="${DELAY:-0}"
@@ -137,7 +136,7 @@ function api_call {
   is_debug && echo >&2 "result: $command_result"
 
   # Look at response and check for Kubernetes errors.
-  local api_result=$(echo "$command_result" | $JQ '.status')
+  local api_result=$(echo "$command_result" | jq -r '.status')
   is_debug && echo >&2 "api_result: $api_result"
   if [[ "$api_result" == "Failure" ]]; then
     echo >&2 "ERROR API CALL FAILED!:-"
@@ -237,7 +236,7 @@ recycle_volume() {
     jq -C . < "$volfile"
   fi
 
-  bits=$($JQ --arg annotname "$ANNOTATION_FAILED_AT" '@sh "
+  bits=$(jq -r --arg annotname "$ANNOTATION_FAILED_AT" '@sh "
     vol_name=\(.metadata.name)
     vol_path=\(.spec.glusterfs.path)
     vol_phase=\(.status.phase)
