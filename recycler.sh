@@ -38,6 +38,10 @@ if [[ ! $DELAY =~ [0-9]+ ]]; then
   echo "DELAY is not a number, ignoring!" >&2
 fi
 
+is_debug() {
+  [[ "$DEBUG" == true ]]
+}
+
 echo "glusterfs recycler is starting up"
 
 # Check we can find the Kubernetes service
@@ -58,18 +62,18 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 # Go find our serviceaccount token
 KUBE_TOKEN=`cat /var/run/secrets/kubernetes.io/serviceaccount/token`
-[[ "$DEBUG" == "true" ]] && echo "Service Account Token is: $KUBE_TOKEN"
+is_debug && echo "Service Account Token is: $KUBE_TOKEN"
 
 # Select the ca options for curling the Kubernetes API
-[[ "$DEBUG" == "true" ]] && echo "Looking for /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+is_debug && echo "Looking for /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 if [ -e /var/run/secrets/kubernetes.io/serviceaccount/ca.crt ]; then
   CAOPTS=( --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt )
   CERT=`cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt`
-  [[ "$DEBUG" == "true" ]] && echo "Found /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-  [[ "$DEBUG" == "true" ]] && echo "CA Certificate is $CERT "
+  is_debug && echo "Found /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+  is_debug && echo "CA Certificate is $CERT "
 else
   CAOPTS=( -k )
-  [[ "$DEBUG" == "true" ]] && echo "Could not find /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with -k option"
+  is_debug && echo "Could not find /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with -k option"
 fi
 
 #API
@@ -101,7 +105,7 @@ function api_call {
   local body=$3
   local type="${4:-application/json}"
 
-  [[ "$DEBUG" == "true" ]] && echo >&2 "api_call method=$method call=$call body=$body"
+  is_debug && echo >&2 "api_call method=$method call=$call body=$body"
 
   local curl_command=( "${CURL[@]}" -X "$method" )
 
@@ -110,7 +114,7 @@ function api_call {
     curl_command+=( -H "Content-Type: $type" -d "$body" )
   fi
   curl_command+=( "${HOSTURL}${call}" )
-  [[ "$DEBUG" == "true" ]] && echo >&2 command: "${curl_command[@]}"
+  is_debug && echo >&2 command: "${curl_command[@]}"
 
   # In READONLY mode only allow GET's to run against the API
   if [[ "$READONLY" == "true" && "$method" != "GET" ]]; then
@@ -126,11 +130,11 @@ function api_call {
     echo >&2 "$command_result"
     return 1
   fi
-  [[ "$DEBUG" == "true" ]] && echo >&2 "result: $command_result"
+  is_debug && echo >&2 "result: $command_result"
 
   # Look at response and check for Kubernetes errors.
   local api_result=`echo "$command_result" | $JQ '.status'`
-  [[ "$DEBUG" == "true" ]] && echo >&2 "api_result: $api_result"
+  is_debug && echo >&2 "api_result: $api_result"
   if [[ "$api_result" == "Failure" ]]; then
     echo >&2 "ERROR API CALL FAILED!:-"
     echo >&2 "$command_result"
@@ -149,7 +153,7 @@ clear_volume() {
     return 1
   fi
 
-  if [[ "$DEBUG" == true ]]; then
+  if is_debug; then
     echo "Volume contains the following files:"
     find "$path" | sort
   fi
@@ -185,7 +189,7 @@ recreate_volume() {
     < "$volfile" \
     > "$vol_def"
 
-  if [[ "$DEBUG" == "true" ]]; then
+  if is_debug; then
     echo "Sanitized volume config definition is:"
     cat "$vol_def"
     echo "Deleting ${vol_name}"
@@ -197,13 +201,13 @@ recreate_volume() {
     return
   fi
 
-  if [[ "$DEBUG" == "true" ]]; then
+  if is_debug; then
     echo "result of api call: $delete_result"
   fi
 
   # re-create the object
   if add_result=$(api_call POST /api/v1/persistentvolumes "@${vol_def}"); then
-    if [[ "$DEBUG" == "true" ]]; then
+    if is_debug; then
       echo "result of api call: $add_result"
     fi
     echo "Successfully re-cycled volume ${vol_name}"
@@ -224,7 +228,7 @@ recycle_volume() {
   local vol_failed_at
   local bits
 
-  if [[ "$DEBUG" == true ]]; then
+  if is_debug; then
     echo "Examining the following volume:"
     jq -C . < "$volfile"
   fi
@@ -238,7 +242,7 @@ recycle_volume() {
     vol_failed_at=\(.metadata.annotations[$annotname] // "")
     "' < "$volfile")
 
-  if [[ "$DEBUG" == true ]]; then
+  if is_debug; then
     echo "Variables: ${bits}"
   fi
 
@@ -259,7 +263,7 @@ recycle_volume() {
     return
   fi
 
-  if [[ "$DEBUG" == true ]]; then
+  if is_debug; then
     echo "Volume $vol_name is in Failed state!"
   fi
 
@@ -268,7 +272,7 @@ recycle_volume() {
     return
   fi
 
-  if [[ "$DEBUG" == true ]]; then
+  if is_debug; then
     echo "Volume ${vol_name} is a glusterfs volume and is in a failed state"
   fi
 
@@ -317,7 +321,7 @@ recycle_volume() {
   echo "Recycling volume ${vol_name}"
 
   # mount the volume
-  if [[ "$DEBUG" == true ]]; then
+  if is_debug; then
     echo "Mounting volume: mount.glusterfs \"${CLUSTER}:${vol_path}\" \"${mountdir}\""
   fi
 
@@ -337,7 +341,7 @@ recycle_volume() {
     recreate_volume "$volfile"
   fi
 
-  if [[ "$DEBUG" == "true" ]]; then
+  if is_debug; then
     echo "Unmounting $vol_name"
   fi
   umount "$mountdir"
@@ -348,10 +352,10 @@ while true
 do
 
   # Get a list of physical volumes and their status
-  [[ "$DEBUG" == "true" ]] && echo "Getting a list of persistentvolumes..."
+  is_debug && echo "Getting a list of persistentvolumes..."
   vol_list=`api_call GET /api/v1/persistentvolumes`
   if [ "$?" -eq "0" ]; then
-    [[ "$DEBUG" == "true" ]] && echo "result of api call: $vol_list"
+    is_debug && echo "result of api call: $vol_list"
 
     echo "$vol_list" | \
       jq -r '.items | map(select(.status.phase == "Failed"))' \
