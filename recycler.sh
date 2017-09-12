@@ -29,7 +29,6 @@
 # DELAY - number of seconds to delay recycling after pv has first been seen in failed state
 # DEBUG - set to 'true' to enable detailed logging.
 
-CAOPTS="-k"
 JQ="jq -c -M -r"
 
 DELAY="${DELAY:-0}"
@@ -60,16 +59,17 @@ KUBE_TOKEN=`cat /var/run/secrets/kubernetes.io/serviceaccount/token`
 # Select the ca options for curling the Kubernetes API
 [[ "$DEBUG" == "true" ]] && echo "Looking for /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 if [ -e /var/run/secrets/kubernetes.io/serviceaccount/ca.crt ]; then
-  CAOPTS="--cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+  CAOPTS=( --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt )
   CERT=`cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt`
   [[ "$DEBUG" == "true" ]] && echo "Found /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
   [[ "$DEBUG" == "true" ]] && echo "CA Certificate is $CERT "
 else
+  CAOPTS=( -k )
   [[ "$DEBUG" == "true" ]] && echo "Could not find /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with -k option"
 fi
 
 #API
-CURL="curl -s -H \"Authorization: bearer $KUBE_TOKEN\" $CAOPTS"
+CURL=( curl -s -H "Authorization: bearer $KUBE_TOKEN" "${CAOPTS[@]}" )
 HOSTURL="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
 
 # Check that the CLUSTER variable has been set
@@ -99,13 +99,14 @@ function api_call {
 
   [[ "$DEBUG" == "true" ]] && echo >&2 "api_call method=$method call=$call body=$body"
 
+  local curl_command=( "${CURL[@]}" -X "$method" )
+
   # set up the appropriate curl command
-  if [[ "$body" == "" ]]; then
-    local curl_command="$CURL -X $method ${HOSTURL}${call}"
-  else
-    local curl_command="$CURL -H \"Content-Type: $type\" -X $method -d '${body}' ${HOSTURL}${call}"
+  if [[ -n "$body" ]]; then
+    curl_command+=( -H "Content-Type: $type" -d "$body" )
   fi
-  [[ "$DEBUG" == "true" ]] && echo >&2 "command: $curl_command"
+  curl_command+=( "${HOSTURL}${call}" )
+  [[ "$DEBUG" == "true" ]] && echo >&2 command: "${curl_command[@]}"
 
   # In READONLY mode only allow GET's to run against the API
   if [[ "$READONLY" == "true" && "$method" != "GET" ]]; then
@@ -114,8 +115,9 @@ function api_call {
   fi
 
   # Execute the API call via curl and check for curl errors.
-  local command_result=`eval $curl_command`
-  if [ "$?" -ne "0" ]; then
+  if command_result=$( "${curl_command[@]}" ); then
+    :
+  else
     echo >&2 "ERROR! Curl command failed to run properly"
     echo >&2 "$command_result"
     return 1
