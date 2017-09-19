@@ -16,7 +16,7 @@
 #    limitations under the License.
 #
 # In an endless loop: -
-# Retreives a list of persistentvolumes from kubernetes and for each glusterfs volume in a failed state:
+# Retrieves a list of persistentvolumes from kubernetes and for each glusterfs volume in a failed state:
 #  mount volume
 #  remove all contents
 #  delete and re-add the volume
