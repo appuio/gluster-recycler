@@ -1,10 +1,23 @@
 FROM centos:7
 
-RUN INSTALL_PKGS="bash tar jq findutils which glusterfs-fuse" && \
-    rpm -ihv https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm && \
-    yum install -y --setopt=tsflags=nodocs $INSTALL_PKGS && \
-    rpm -V $INSTALL_PKGS && \
-    yum clean all
+RUN \
+  set -e && \
+  PRE_INSTALL_PKG=" \
+    https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm" && \
+  if ( . /etc/os-release && [ "$NAME" = rhel ] ); then \
+    extrapkg=http://mirror.centos.org/centos/7/extras/x86_64/Packages && \
+    PRE_INSTALL_PKG="${PRE_INSTALL_PKG} \
+      ${extrapkg}/centos-release-storage-common-1-2.el7.centos.noarch.rpm \
+      ${extrapkg}/centos-release-gluster312-1.0-1.el7.centos.noarch.rpm \
+      "; \
+  else \
+    PRE_INSTALL_PKG="${PRE_INSTALL_PKG} centos-release-gluster312"; \
+  fi && \
+  yum install -y --setopt=tsflags=nodocs $PRE_INSTALL_PKG && \
+  INSTALL_PKGS="bash tar jq findutils which glusterfs-fuse" && \
+  yum install -y --setopt=tsflags=nodocs $INSTALL_PKGS && \
+  rpm -V $INSTALL_PKGS && \
+  yum clean all
 
 ENV TINI_VERSION v0.16.1
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
