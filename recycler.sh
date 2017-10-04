@@ -16,7 +16,7 @@
 #    limitations under the License.
 #
 # In an endless loop: -
-# Retreives a list of persistentvolumes from kubernetes and for each glusterfs volume in a failed state:
+# Retrieves a list of persistentvolumes from kubernetes and for each glusterfs volume in a failed state:
 #  mount volume
 #  remove all contents
 #  delete and re-add the volume
@@ -29,13 +29,20 @@
 # DELAY - number of seconds to delay recycling after pv has first been seen in failed state
 # DEBUG - set to 'true' to enable detailed logging.
 
-CAOPTS="-k"
-JQ="jq -c -M -r"
+ANNOTATION_FAILED_AT=appuio.ch/failed-at
 
 DELAY="${DELAY:-0}"
 if [[ ! $DELAY =~ [0-9]+ ]]; then
   DELAY="0"
   echo "DELAY is not a number, ignoring!" >&2
+fi
+
+is_debug() {
+  [[ "$DEBUG" == true ]]
+}
+
+if is_debug; then
+  set -x
 fi
 
 echo "glusterfs recycler is starting up"
@@ -53,23 +60,27 @@ if [[ ! -e "/usr/bin/jq" && ! -e "/usr/local/bin/jq" ]]; then
   exit 1
 fi
 
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
 # Go find our serviceaccount token
-KUBE_TOKEN=`cat /var/run/secrets/kubernetes.io/serviceaccount/token`
-[[ "$DEBUG" == "true" ]] && echo "Service Account Token is: $KUBE_TOKEN"
+KUBE_TOKEN=$(< /var/run/secrets/kubernetes.io/serviceaccount/token)
+is_debug && echo "Service Account Token is: $KUBE_TOKEN"
 
 # Select the ca options for curling the Kubernetes API
-[[ "$DEBUG" == "true" ]] && echo "Looking for /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+is_debug && echo "Looking for /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 if [ -e /var/run/secrets/kubernetes.io/serviceaccount/ca.crt ]; then
-  CAOPTS="--cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-  CERT=`cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt`
-  [[ "$DEBUG" == "true" ]] && echo "Found /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-  [[ "$DEBUG" == "true" ]] && echo "CA Certificate is $CERT "
+  CAOPTS=( --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt )
+  CERT=$(< /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+  is_debug && echo "Found /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+  is_debug && echo "CA Certificate is $CERT "
 else
-  [[ "$DEBUG" == "true" ]] && echo "Could not find /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with -k option"
+  CAOPTS=( -k )
+  is_debug && echo "Could not find /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with -k option"
 fi
 
 #API
-CURL="curl -s -H \"Authorization: bearer $KUBE_TOKEN\" $CAOPTS"
+CURL=( curl -s -H "Authorization: bearer $KUBE_TOKEN" "${CAOPTS[@]}" )
 HOSTURL="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
 
 # Check that the CLUSTER variable has been set
@@ -97,15 +108,16 @@ function api_call {
   local body=$3
   local type="${4:-application/json}"
 
-  [[ "$DEBUG" == "true" ]] && echo >&2 "api_call method=$method call=$call body=$body"
+  is_debug && echo >&2 "api_call method=$method call=$call body=$body"
+
+  local curl_command=( "${CURL[@]}" -X "$method" )
 
   # set up the appropriate curl command
-  if [[ "$body" == "" ]]; then
-    local curl_command="$CURL -X $method $opts ${HOSTURL}${call}"
-  else
-    local curl_command="$CURL -H \"Content-Type: $type\" -X $method -d '${body}' ${HOSTURL}${call}"
+  if [[ -n "$body" ]]; then
+    curl_command+=( -H "Content-Type: $type" -d "$body" )
   fi
-  [[ "$DEBUG" == "true" ]] && echo >&2 "command: $curl_command"
+  curl_command+=( "${HOSTURL}${call}" )
+  is_debug && echo >&2 command: "${curl_command[@]}"
 
   # In READONLY mode only allow GET's to run against the API
   if [[ "$READONLY" == "true" && "$method" != "GET" ]]; then
@@ -114,17 +126,18 @@ function api_call {
   fi
 
   # Execute the API call via curl and check for curl errors.
-  local command_result=`eval $curl_command`
-  if [ "$?" -ne "0" ]; then
+  if command_result=$( "${curl_command[@]}" ); then
+    :
+  else
     echo >&2 "ERROR! Curl command failed to run properly"
     echo >&2 "$command_result"
     return 1
   fi
-  [[ "$DEBUG" == "true" ]] && echo >&2 "result: $command_result"
+  is_debug && echo >&2 "result: $command_result"
 
   # Look at response and check for Kubernetes errors.
-  local api_result=`echo "$command_result" | $JQ '.status'`
-  [[ "$DEBUG" == "true" ]] && echo >&2 "api_result: $api_result"
+  local api_result=$(echo "$command_result" | jq -r '.status')
+  is_debug && echo >&2 "api_result: $api_result"
   if [[ "$api_result" == "Failure" ]]; then
     echo >&2 "ERROR API CALL FAILED!:-"
     echo >&2 "$command_result"
@@ -135,102 +148,238 @@ function api_call {
   fi
 }
 
+clear_volume() {
+  local path="$1"
+
+  # Normalize path
+  if ! path=$(readlink -f -- "$path"); then
+    return 1
+  fi
+
+  if is_debug; then
+    echo "Volume contains the following files:"
+    find "$path" | sort
+  fi
+
+  # delete all the files with -mindepth 1 so we don't try and remove the mount directory
+  find "$path" -mindepth 1 -not -path "${path}/.trashcan*" -delete
+  if [[ "$?" != 0 ]]; then
+    echo "ERROR: We could not remove all of the files in this volume!"
+    return 1
+  fi
+
+  return 0
+}
+
+recreate_volume() {
+  local volfile="$1"
+  local vol_name
+  local vol_def="${tmpdir}/recreate.json"
+
+  vol_name=$(jq -r '.metadata.name' < "$volfile")
+
+  echo "Recreating volume ${vol_name}"
+
+  jq -r '
+    del(.status) |
+    del(.spec.claimRef) |
+    del(.metadata.selfLink) |
+    del(.metadata.uid) |
+    del(.metadata.resourceVersion) |
+    del(.metadata.creationTimestamp) |
+    del(.metadata.annotations)
+    ' \
+    < "$volfile" \
+    > "$vol_def"
+
+  if is_debug; then
+    echo "Sanitized volume config definition is:"
+    cat "$vol_def"
+    echo "Deleting ${vol_name}"
+  fi
+
+  if ! delete_result=$(api_call DELETE "/api/v1/persistentvolumes/${vol_name}"); then
+    echo "ERROR: Couldn't delete volume ${vol_name} via Kubernetes API. The response was:"
+    echo "$delete_result"
+    return
+  fi
+
+  if is_debug; then
+    echo "result of api call: $delete_result"
+  fi
+
+  # re-create the object
+  if add_result=$(api_call POST /api/v1/persistentvolumes "@${vol_def}"); then
+    if is_debug; then
+      echo "result of api call: $add_result"
+    fi
+    echo "Successfully re-cycled volume ${vol_name}"
+  else
+    echo "ERROR: Couldn't re-create volume ${vol_name} via Kubernetes API.  The response was:"
+    echo "$add_result"
+  fi
+
+  return
+}
+
+recycle_volume() {
+  local volfile="$1"
+  local vol_name
+  local vol_path
+  local vol_isgluster
+  local vol_message
+  local vol_failed_at
+  local bits
+
+  if is_debug; then
+    echo "Examining the following volume:"
+    jq -C . < "$volfile"
+  fi
+
+  bits=$(jq -r --arg annotname "$ANNOTATION_FAILED_AT" '@sh "
+    vol_name=\(.metadata.name)
+    vol_path=\(.spec.glusterfs.path)
+    vol_phase=\(.status.phase)
+    vol_isgluster=\(if .spec.glusterfs then "yes" else "" end)
+    vol_message=\(.status.message)
+    vol_failed_at=\(.metadata.annotations[$annotname] // "")
+    "' < "$volfile")
+
+  if is_debug; then
+    echo "Variables: ${bits}"
+  fi
+
+  eval "$bits"
+
+  local mountdir="/mnt/${vol_name}"
+
+  if mountpoint -q "$mountdir"; then
+    echo "Volume \"${vol_name}\" is still mounted"
+    umount "$mountdir"
+  fi
+
+  # Only process volumes which are in failed phase, are glusterfs and have a message of "no volume plugin matched"
+  # so that we only try to recycle volumes which have been given back to the cluster and don't have a valid
+  # recycler plugin.
+
+  if [[ "$vol_phase" != Failed ]]; then
+    return
+  fi
+
+  if is_debug; then
+    echo "Volume $vol_name is in Failed state!"
+  fi
+
+  if [[ -z "$vol_isgluster" ]]; then
+    # Not a Gluster volume
+    return
+  fi
+
+  if is_debug; then
+    echo "Volume ${vol_name} is a glusterfs volume and is in a failed state"
+  fi
+
+  case "$vol_message" in
+    'no volume plugin matched' | \
+    'No recycler plugin found for the volume!')
+      ;;
+    *)
+      return
+      ;;
+  esac
+
+  if [[ "$DELAY" != 0 ]]; then
+    if [[ -z "$vol_failed_at" ]]; then
+      local failed_at=$(date -Is)
+      local patch=$(jq -r --null-input \
+        --arg annotname "$ANNOTATION_FAILED_AT" \
+        --arg failed_at "$failed_at" '{
+        "metadata": {
+          "annotations": {
+            ($annotname): $failed_at
+          }
+        }
+      }')
+      local patch_result
+
+      echo "Annotating ${vol_name} as failed at ${failed_at}"
+
+      patch_result=$(api_call PATCH "/api/v1/persistentvolumes/${vol_name}" "$patch" application/strategic-merge-patch+json)
+      if [[ "$?" != 0 ]]; then
+        echo "Couldn't annotate ${vol_name} with failed timestamp. The response was:"
+        echo "$patch_result"
+      fi
+
+      return
+    fi
+
+    local now_minus_delay=$(date -Is "-d-${DELAY}sec")
+
+    if [[ "$now_minus_delay" < "$vol_failed_at" ]]; then
+      # Not enough time has passed
+      return
+    fi
+  fi
+
+  echo "Recycling volume ${vol_name}"
+
+  # mount the volume
+  if is_debug; then
+    echo "Mounting volume: mount.glusterfs \"${CLUSTER}:${vol_path}\" \"${mountdir}\""
+  fi
+
+  if [[ ! -d "$mountdir" ]]; then
+    mkdir "$mountdir"
+  fi
+
+  mount.glusterfs "${CLUSTER}:${vol_path}" "$mountdir"
+  if [[ "$?" != "0" ]]; then
+    echo "ERROR: Unable to mount the volume"
+    return
+  fi
+
+  echo "Successfully mounted volume ${vol_name} to ${mountdir}"
+
+  local recreate=
+  if clear_volume "$mountdir"; then
+    recreate=yes
+  fi
+
+  if is_debug; then
+    echo "Unmounting $vol_name"
+  fi
+  umount "$mountdir"
+
+  if [[ -n "$recreate" ]]; then
+    recreate_volume "$volfile"
+  fi
+}
+
 # start the loop
 while true
 do
 
   # Get a list of physical volumes and their status
-  [[ "$DEBUG" == "true" ]] && echo "Getting a list of persistentvolumes..."
-  vol_list=`api_call GET /api/v1/persistentvolumes`
+  is_debug && echo "Getting a list of persistentvolumes..."
+  vol_list=$(api_call GET /api/v1/persistentvolumes)
   if [ "$?" -eq "0" ]; then
-    [[ "$DEBUG" == "true" ]] && echo "result of api call: $vol_list"
+    is_debug && echo "result of api call: $vol_list"
+
+    echo "$vol_list" | \
+      jq -r '.items | map(select(.status.phase == "Failed"))' \
+      > "${tmpdir}/failed.json"
+
+    num_vols=$(jq -r length < "${tmpdir}/failed.json")
+
+    echo "$(date -Is): ${num_vols} failed volumes found"
 
     # interate over the persistent volumes a volume at a time
-    num_vols=`echo $vol_list | $JQ '.items | length'`
-    currdate=`date -Is`
-    echo "$currdate // $num_vols persistent volumes found"
     for i in $(seq 0 $((num_vols - 1))); do
+      jq -r --argjson idx "$i" '.[$idx]' \
+        < "${tmpdir}/failed.json" \
+        > "${tmpdir}/volume.json"
 
-      # Only process volumes which are in failed phase, are glusterfs and have a message of "no volume plugin matched"
-      # so that we only try to recycle volumes which have been given back to the cluster and don't have a valid
-      # recycler plugin.
-      [[ "$DEBUG" == "true" ]] && echo "result index $i"
-      volume_with_status=`echo $vol_list | $JQ '.items['$i']'`
-      [[ "$DEBUG" == "true" ]] && echo "Examining the following volume:-"
-      [[ "$DEBUG" == "true" ]] && echo "$volume_with_status"
-      vol_name=`echo $volume_with_status | $JQ '.metadata.name'`
-      vol_path=`echo $volume_with_status | $JQ '.spec.glusterfs.path'`
-      is_failed=`echo $volume_with_status | $JQ '.status.phase'`
-      if [[ "$is_failed" == "Failed" ]]; then
-        [[ "$DEBUG" == "true" ]] && echo "Volume $vol_name is in Failed state!"
-        is_gluster=`echo $volume_with_status | $JQ '.glusterfs'`
-        if [[ "$is_gluster" != "" ]]; then
-          [[ "$DEBUG" == "true" ]] && echo "Volume $vol_name is a glusterfs volume and is in a failed state!"
-          message=`echo $volume_with_status | $JQ '.status.message'`
-          failed_at=`echo $volume_with_status | $JQ -r '.metadata.annotations["appuio.ch/failed-at"]'`
-          now_minus_delay=`date -Is -d-${DELAY}sec`
-          if [[ ("$message" == "no volume plugin matched" || "$message" == "No recycler plugin found for the volume!") &&
-                ("$DELAY" == "0" || "$failed_at" != "null" && "$now_minus_delay" > "$failed_at") ]]; then
-            echo "*****"
-            echo "Attempting to re-cycle volume $vol_name"
-            echo "*****"
-
-            # mount the volume
-            [[ "$DEBUG" == "true" ]] && echo "Mounting Volume: mount.glusterfs ${CLUSTER}:${vol_path} /mnt"
-            mount.glusterfs ${CLUSTER}:${vol_path} /mnt
-            if [[ "$?" != "0" ]]; then
-              echo "ERROR! Unable to mount the volume."
-              continue
-            else
-              echo "Successfully mounted volume ${vol_name} to /mnt"
-              [[ "$DEBUG" == "true" ]] && echo "Volume contains the following files:-"
-              [[ "$DEBUG" == "true" ]] && find /mnt
-            fi
-
-            # delete all the files with -mindepth 1 so we don't try and remove /mnt
-            [[ "$DEBUG" == "true" ]] && echo "Deleting all files and dirs: find /mnt -mindepth 1 -not -path \"/mnt/.trashcan*\" -delete"
-            find /mnt -mindepth 1 -not -path "/mnt/.trashcan*" -delete
-            if [[ "$?" != "0" ]]; then
-              echo "ERROR! We could not remove all of the files in this volume!!"
-            else
-                echo "Recreating volume $vol_name in kubernetes..."
-                #vol_def=`echo $volume_with_status | $JQ '- .status .metadata.selflink, .metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp ]'`
-                vol_def=`echo $volume_with_status | $JQ 'del(.status) | del(.spec.claimRef) | del(.metadata.selfLink) | del(.metadata.uid) | del(.metadata.resourceVersion) | del(.metadata.creationTimestamp) | del(.metadata.annotations)'`
-                [[ "$DEBUG" == "true" ]] && echo "Sanitized volume config definition is:-"
-                [[ "$DEBUG" == "true" ]] && echo "$vol_def"
-                [[ "$DEBUG" == "true" ]] && echo "Deleting $vol_name"
-                delete_result=`api_call DELETE /api/v1/persistentvolumes/${vol_name}`
-                if [ "$?" -eq "0" ]; then
-                  [[ "$DEBUG" == "true" ]] && echo "result of api call: $delete_result"
-                  # re-create the object
-                  add_result=`api_call POST /api/v1/persistentvolumes "$vol_def"`
-                  if [ "$?" -eq "0" ]; then
-                    [[ "$DEBUG" == "true" ]] && echo "result of api call: $add_result"
-                    echo "Successfully re-cycled volume ${vol_name}"
-                  else
-                    echo "ERROR! I couldn't re-create volume ${vol_name} via Kubernetes API.  The response was:-"
-                    echo "$add_result"
-                  fi
-                else
-                  echo "ERROR! I couldn't delete volume ${vol_name} via Kubernetes API.  The response was:-"
-                  echo "$delete_result"
-                fi
-            fi
-
-            [[ "$DEBUG" == "true" ]] && echo "unmounting $vol_name"
-            umount /mnt
-          elif [[ "$DELAY" != "0" && "$failed_at" == "null" ]]; then
-            failed_at=`date -Is`
-            patch_result=`api_call PATCH /api/v1/persistentvolumes/${vol_name} '{"metadata":{"annotations":{"appuio.ch/failed-at":"'${failed_at}'"}}}' application/strategic-merge-patch+json`
-            if [ "$?" -eq "0" ]; then
-              echo "Annotated ${vol_name} with failed timestamp: ${failed_at}"
-            else
-              echo "Couldn't annotate ${vol_name} with failed timestamp. The response was:-"
-              echo "$patch_result"
-            fi
-          fi
-        fi
-      fi
+      recycle_volume "${tmpdir}/volume.json"
     done
     echo "Finished recycle run"
 
