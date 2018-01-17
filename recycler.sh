@@ -168,6 +168,20 @@ clear_volume() {
     return 1
   fi
 
+  # reset owner to root
+  chown -R -c root:root "$path"
+  if [[ "$?" != 0 ]]; then
+    echo "ERROR: We could not reset the owner to root for this Volume!"
+    return 1
+  fi
+
+  # reset permissions
+  chmod -R -c 2775 "$path"
+  if [[ "$?" != 0 ]]; then
+    echo "ERROR: We could not reset the permissions for this Volume!"
+    return 1
+  fi
+
   return 0
 }
 
