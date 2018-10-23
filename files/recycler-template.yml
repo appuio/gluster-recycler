@@ -49,9 +49,6 @@ objects:
   metadata:
     name: gluster-recycler-base
   spec:
-    importPolicy:
-      scheduled:
-        true
     tags:
       - name: latest
         from:
