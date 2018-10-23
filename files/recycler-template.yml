@@ -3,7 +3,7 @@ kind: Template
 apiVersion: v1
 metadata:
   annotations:
-    description: "Setup for glusterfs persistent volume recycler.  Creates all the required objects and deploys the pod."
+    description: Setup for GlusterFS persistent volume recycler
     version: '1.0.0'
   name: setup-recycler
 labels:
@@ -27,43 +27,17 @@ parameters:
   name: DEBUG
   required: false
   value: "false"
-- description: Base image for recycler, registry.access.redhat.com/rhel7 or docker.io/library/centos:7, defaults to the former
-  name: BASE_IMAGE
-  required: true
-  value: registry.access.redhat.com/rhel7
-- description: 'Source Repo for recycler'
-  name: SOURCE_REPO
-  required: true
-  value: "https://github.com/appuio/gluster-recycler.git"
-- description: 'Gluster recycler version, i.e. git ref of the specified repository'
-  name: SOURCE_REF
-  value: master
-  required: true
 - description: 'Timezone (TZ) of the container, see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones for a list'
   name: TIMEZONE
   value: UTC
   required: true
 objects:
-- apiVersion: v1
-  kind: ImageStream
-  metadata:
-    name: gluster-recycler-base
-  spec:
-    tags:
-      - name: latest
-        from:
-          kind: DockerImage
-          name: ${BASE_IMAGE}
-        importPolicy:
-          scheduled: true
-- apiVersion: v1
-  kind: ImageStream
-  metadata:
-    name: gluster-recycler
+
 - apiVersion: v1
   kind: ServiceAccount
   metadata:
     name: gluster-recycler
+
 - kind: ClusterRole
   apiVersion: v1
   metadata:
@@ -81,6 +55,7 @@ objects:
     apiGroups:
     resources:
     - persistentvolumes
+
 - apiVersion: v1
   groupNames: null
   kind: ClusterRoleBinding
@@ -94,36 +69,7 @@ objects:
     namespace: ${NAMESPACE}
   userNames:
   - system:serviceaccount:${NAMESPACE}:gluster-recycler
-- apiVersion: v1
-  kind: BuildConfig
-  metadata:
-    creationTimestamp: null
-    labels:
-      app: gluster-recycler
-    name: gluster-recycler
-  spec:
-    output:
-      to:
-        kind: ImageStreamTag
-        name: gluster-recycler:latest
-    postCommit: {}
-    resources: {}
-    source:
-      git:
-        uri: ${SOURCE_REPO}
-        ref: ${SOURCE_REF}
-      secrets: []
-      type: Git
-    strategy:
-      type: Docker
-      dockerStrategy:
-        from:
-          kind: ImageStreamTag
-          name: gluster-recycler-base:latest
-    triggers:
-    - type: ConfigChange
-    - imageChange: {}
-      type: ImageChange
+
 - apiVersion: v1
   kind: DeploymentConfig
   metadata:

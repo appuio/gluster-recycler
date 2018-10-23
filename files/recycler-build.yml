@@ -1,0 +1,71 @@
+---
+kind: Template
+apiVersion: v1
+metadata:
+  annotations:
+    description: "Build setup for GlusterFS persistent volume recycler"
+    version: '1.0.0'
+  name: setup-recycler
+labels:
+  template: "gluster-recycler"
+parameters:
+- description: Base image for recycler, registry.access.redhat.com/rhel7 or docker.io/library/centos:7, defaults to the former
+  name: BASE_IMAGE
+  required: true
+  value: registry.access.redhat.com/rhel7
+- description: 'Source Repo for recycler'
+  name: SOURCE_REPO
+  required: true
+  value: "https://github.com/appuio/gluster-recycler.git"
+- description: 'Gluster recycler version, i.e. git ref of the specified repository'
+  name: SOURCE_REF
+  value: master
+  required: true
+objects:
+
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: gluster-recycler-base
+  spec:
+    tags:
+      - name: latest
+        from:
+          kind: DockerImage
+          name: ${BASE_IMAGE}
+        importPolicy:
+          scheduled: true
+
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: gluster-recycler
+
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    creationTimestamp: null
+    name: gluster-recycler
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: gluster-recycler:latest
+    postCommit: {}
+    resources: {}
+    source:
+      git:
+        uri: ${SOURCE_REPO}
+        ref: ${SOURCE_REF}
+      secrets: []
+      type: Git
+    strategy:
+      type: Docker
+      dockerStrategy:
+        from:
+          kind: ImageStreamTag
+          name: gluster-recycler-base:latest
+    triggers:
+    - type: ConfigChange
+    - imageChange: {}
+      type: ImageChange
