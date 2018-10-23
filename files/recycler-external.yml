@@ -1,0 +1,21 @@
+---
+kind: Template
+apiVersion: v1
+parameters:
+- description: 'Docker image reference for recycler image'
+  name: IMAGE
+  required: true
+objects:
+
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: gluster-recycler-external
+  spec:
+    tags:
+      - name: latest
+        from:
+          kind: DockerImage
+          name: ${IMAGE}
+        importPolicy:
+          scheduled: true

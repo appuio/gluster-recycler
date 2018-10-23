@@ -31,6 +31,10 @@ parameters:
   name: TIMEZONE
   value: UTC
   required: true
+- description: 'Name of image stream for recycler container'
+  name: IMAGE_STREAM_NAME
+  value: gluster-recycler
+  required: true
 objects:
 
 - apiVersion: v1
@@ -118,6 +122,6 @@ objects:
         automatic: true
         from:
           kind: ImageStream
-          name: gluster-recycler
+          name: ${IMAGE_STREAM_NAME}
         containerNames:
         - gluster-recycler

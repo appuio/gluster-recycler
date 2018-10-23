@@ -16,11 +16,41 @@
   register: tempdir
   changed_when: False
 
-- block:
+- vars:
+    r_image: "{{ appuio_gluster_recycler_image | default(none) }}"
+    r_delete_objects_global: []
+    r_required_objects_build:
+      - ImageStream/gluster-recycler
+      - ImageStream/gluster-recycler-base
+      - BuildConfig/gluster-recycler
+    r_required_objects_external:
+      - ImageStream/gluster-recycler-external
+    r_delete_objects: >-
+      {{
+      r_delete_objects_global +
+      r_required_objects_build +
+      r_required_objects_external
+      }}
+    r_configs:
+      - template: recycler-build.yml
+        args:
+          BASE_IMAGE: "{{ appuio_gluster_recycler_base_image }}"
+          SOURCE_REPO: "{{ appuio_gluster_recycler_repo }}"
+          SOURCE_REF: "{{ appuio_gluster_recycler_repo_rev }}"
+        image_stream_name: gluster-recycler
+        required_objects: "{{ r_required_objects_build }}"
+      - template: recycler-external.yml
+        args:
+          IMAGE: "{{ r_image }}"
+        image_stream_name: gluster-recycler-external
+        required_objects: "{{ r_required_objects_external }}"
+    r_selected: "{{ r_configs[r_image | ternary(1, 0)] }}"
+  block:
     - name: Copy template
       with_list:
         - recycler-build.yml
         - recycler-template.yml
+        - recycler-external.yml
       copy:
         src: "{{ role_path }}/files/{{ item }}"
         dest: "{{ tempdir.path }}/{{ item }}"
@@ -29,12 +59,9 @@
     - name: Instantiate base recycler template
       openshift_resource:
         namespace: "{{ appuio_gluster_recycler_namespace }}"
-        template: "{{ tempdir.path }}/recycler-build.yml"
+        template: "{{ tempdir.path }}/{{ r_selected.template }}"
         app_name: gluster-recycler
-        arguments:
-          BASE_IMAGE: "{{ appuio_gluster_recycler_base_image }}"
-          SOURCE_REPO: "{{ appuio_gluster_recycler_repo }}"
-          SOURCE_REF: "{{ appuio_gluster_recycler_repo_rev }}"
+        arguments: "{{ r_selected.args }}"
 
     - name: Instantiate main recycler template
       openshift_resource:
@@ -47,6 +74,16 @@
           INTERVAL: "{{ appuio_gluster_recycler_interval_seconds | string }}"
           DELAY: "{{ appuio_gluster_recycler_delay_seconds | string }}"
           TIMEZONE: "{{ appuio_gluster_recycler_timezone }}"
+          IMAGE_STREAM_NAME: "{{ r_selected.image_stream_name }}"
+
+    - name: Remove recycler objects
+      vars:
+        r_obj: "{{ r_delete_objects | difference(r_selected.required_objects) }}"
+      when: r_obj
+      command: >-
+        oc -n {{ appuio_gluster_recycler_namespace | quote }}
+        delete --ignore-not-found
+        {{ r_obj | map("quote") | join(" ") }}
   always:
     - name: Delete temp directory
       file:
