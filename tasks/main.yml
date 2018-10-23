@@ -11,36 +11,35 @@
       - "system:serviceaccount:{{ appuio_gluster_recycler_namespace }}:gluster-recycler"
 
 - name: Create temp directory for doing work in
-  command: mktemp -d /tmp/ansible-gluster-recycler-XXXXXXXX
-  register: mktemp
+  tempfile:
+    state: directory
+  register: tempdir
   changed_when: False
 
-- set_fact:
-    tempdir: "{{ mktemp.stdout }}"
+- block:
+    - name: Copy template
+      copy:
+        src: "{{ role_path }}/files/recycler-template.yml"
+        dest: "{{ tempdir.path }}/template.yml"
+      changed_when: False
 
-- name: Copy template
-  copy:
-    src: "{{ role_path }}/files/recycler-template.yml"
-    dest: "{{ tempdir }}/template.yml"
-  changed_when: False
-
-- name: Instantiate recycler template
-  openshift_resource:
-    namespace: "{{ appuio_gluster_recycler_namespace }}"
-    template: "{{ tempdir }}/template.yml"
-    app_name: gluster-recycler
-    arguments:
-      NAMESPACE: "{{ appuio_gluster_recycler_namespace }}"
-      GLUSTER_HOSTS: "{{ appuio_gluster_recycler_gluster_hosts | mandatory }}"
-      BASE_IMAGE: "{{ appuio_gluster_recycler_base_image }}"
-      SOURCE_REPO: "{{ appuio_gluster_recycler_repo }}"
-      SOURCE_REF: "{{ appuio_gluster_recycler_repo_rev }}"
-      INTERVAL: "{{ appuio_gluster_recycler_interval_seconds | string }}"
-      DELAY: "{{ appuio_gluster_recycler_delay_seconds | string }}"
-      TIMEZONE: "{{ appuio_gluster_recycler_timezone }}"
-
-- name: Delete temp directory
-  file:
-    name: "{{ tempdir }}"
-    state: absent
-  changed_when: False
+    - name: Instantiate recycler template
+      openshift_resource:
+        namespace: "{{ appuio_gluster_recycler_namespace }}"
+        template: "{{ tempdir.path }}/template.yml"
+        app_name: gluster-recycler
+        arguments:
+          NAMESPACE: "{{ appuio_gluster_recycler_namespace }}"
+          GLUSTER_HOSTS: "{{ appuio_gluster_recycler_gluster_hosts | mandatory }}"
+          BASE_IMAGE: "{{ appuio_gluster_recycler_base_image }}"
+          SOURCE_REPO: "{{ appuio_gluster_recycler_repo }}"
+          SOURCE_REF: "{{ appuio_gluster_recycler_repo_rev }}"
+          INTERVAL: "{{ appuio_gluster_recycler_interval_seconds | string }}"
+          DELAY: "{{ appuio_gluster_recycler_delay_seconds | string }}"
+          TIMEZONE: "{{ appuio_gluster_recycler_timezone }}"
+  always:
+    - name: Delete temp directory
+      file:
+        name: "{{ tempdir.path }}"
+        state: absent
+      changed_when: False
