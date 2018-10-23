@@ -27,7 +27,7 @@ parameters:
   name: DEBUG
   required: false
   value: "false"
-- description: Base image for recycler, registry.access.redhat.com/rhel7 or centos:7, defaults to the former
+- description: Base image for recycler, registry.access.redhat.com/rhel7 or docker.io/library/centos:7, defaults to the former
   name: BASE_IMAGE
   required: true
   value: registry.access.redhat.com/rhel7
