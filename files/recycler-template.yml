@@ -120,8 +120,6 @@ objects:
               - name: TZ
                 value: ${TIMEZONE}
               args:
-                - "bash"
-                - "-c"
                 - "/recycler.sh"
               securityContext:
                 privileged: true
