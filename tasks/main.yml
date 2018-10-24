@@ -18,7 +18,8 @@
 
 - vars:
     r_image: "{{ appuio_gluster_recycler_image | default(none) }}"
-    r_delete_objects_global: []
+    r_delete_objects_global:
+      - DeploymentConfig/gluster-recycler
     r_required_objects_build:
       - ImageStream/gluster-recycler
       - ImageStream/gluster-recycler-base
@@ -71,7 +72,7 @@
         arguments:
           NAMESPACE: "{{ appuio_gluster_recycler_namespace }}"
           GLUSTER_HOSTS: "{{ appuio_gluster_recycler_gluster_hosts | mandatory }}"
-          INTERVAL: "{{ appuio_gluster_recycler_interval_seconds | string }}"
+          SCHEDULE: "{{ appuio_gluster_recycler_schedule | string }}"
           DELAY: "{{ appuio_gluster_recycler_delay_seconds | string }}"
           TIMEZONE: "{{ appuio_gluster_recycler_timezone }}"
           IMAGE_STREAM_NAME: "{{ r_selected.image_stream_name }}"
