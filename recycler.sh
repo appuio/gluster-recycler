@@ -88,18 +88,19 @@ fi
 CURL=( curl -s -H "Authorization: bearer $KUBE_TOKEN" "${CAOPTS[@]}" )
 HOSTURL="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
 
-# Check that the CLUSTER variable has been set
-if [[ "$CLUSTER" == "" ]]; then
-  echo "Error: You MUST set the environment variable CLUSTER with the address of your gluster cluster!"
-  sleep 60
-  exit 1
-else
-  echo "gluster cluster: $CLUSTER"
-fi
-
 # Permit separating Gluster hosts with both ";" and "," (Gluster FUSE requires
 # comma)
 CLUSTER=${CLUSTER/;/,}
+
+if [[ -n "$CLUSTER" ]]; then
+  echo "Gluster cluster: $CLUSTER"
+elif [[ -n "$GLUSTER_OBJECT_NAMESPACE" ]]; then
+  echo "Gluster object namespace: $GLUSTER_OBJECT_NAMESPACE"
+else
+  echo "Error: Environment variable \"CLUSTER\" or \"GLUSTER_OBJECT_NAMESPACE\" must be set"
+  sleep 60
+  exit 1
+fi
 
 # INTERVAL defaults to 5 minutes
 [[ "$INTERVAL" == "" ]] && INTERVAL=300
@@ -249,10 +250,12 @@ recycle_volume() {
   local volfile="$1"
   local vol_name
   local vol_path
+  local vol_endpoints
   local vol_isgluster
   local vol_message
   local vol_failed_at
   local bits
+  local gluster_endpoints
 
   if is_debug; then
     echo "Examining the following volume:"
@@ -262,6 +265,7 @@ recycle_volume() {
   bits=$(jq -r --arg annotname "$ANNOTATION_FAILED_AT" '@sh "
     vol_name=\(.metadata.name)
     vol_path=\(.spec.glusterfs.path // "")
+    vol_endpoints=\(.spec.glusterfs.endpoints // "")
     vol_phase=\(.status.phase // "")
     vol_isgluster=\(if .spec.glusterfs then "yes" else "" end)
     vol_message=\(.status.message // "")
@@ -338,16 +342,41 @@ recycle_volume() {
 
   echo "Recycling volume ${vol_name}"
 
+  if [[ -n "$CLUSTER" ]]; then
+    gluster_endpoints="$CLUSTER"
+  elif [[ -n "$GLUSTER_OBJECT_NAMESPACE" ]]; then
+    local gluster_endpoints_json
+
+    gluster_endpoints_json=$(api_call GET "/api/v1/namespaces/${GLUSTER_OBJECT_NAMESPACE}/endpoints/${vol_endpoints}")
+    if [[ "$?" != 0 ]]; then
+      echo "Couldn't get endpoint object \"${vol_endpoints}\" from namespace \"${GLUSTER_OBJECT_NAMESPACE}\":"
+      echo "$gluster_endpoints_json"
+      return
+    fi
+
+    gluster_endpoints=$(
+      echo "$gluster_endpoints_json" | \
+      jq -r '[.subsets[].addresses[].ip] | select(.) | sort | join(",")'
+      )
+    if [[ "$?" != 0 ]]; then
+      echo "Failed to extract endpoints:"
+      echo "$gluster_endpoints_json"
+      return
+    fi
+  else
+    return
+  fi
+
   # mount the volume
   if is_debug; then
-    echo "Mounting volume: mount.glusterfs \"${CLUSTER}:${vol_path}\" \"${mountdir}\""
+    echo "Mounting volume: mount.glusterfs \"${gluster_endpoints}:${vol_path}\" \"${mountdir}\""
   fi
 
   if [[ ! -d "$mountdir" ]]; then
     mkdir "$mountdir"
   fi
 
-  mount.glusterfs "${CLUSTER}:${vol_path}" "$mountdir"
+  mount.glusterfs "${gluster_endpoints}:${vol_path}" "$mountdir"
   if [[ "$?" != "0" ]]; then
     echo "ERROR: Unable to mount the volume"
     return
