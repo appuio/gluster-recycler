@@ -24,7 +24,7 @@
 #####################################################################################
 # Inputs are ENVIRONMENT VARIABLES
 #
-# CLUSTER - the address string of the gluster cluster, e.g.
+# CLUSTER - the address string of the gluster cluster
 # INTERVAL - the pause between recyle runs in seconds (default 5 minutes)
 # DELAY - number of seconds to delay recycling after pv has first been seen in failed state
 # DEBUG - set to 'true' to enable detailed logging.
@@ -96,8 +96,9 @@ if [[ "$CLUSTER" == "" ]]; then
 else
   echo "gluster cluster: $CLUSTER"
 fi
-# Allow people to use pipe to separate the gluster hosts with a ;
-# because using a ',' in openshift template parameters is hard.
+
+# Permit separating Gluster hosts with both ";" and "," (Gluster FUSE requires
+# comma)
 CLUSTER=${CLUSTER/;/,}
 
 # INTERVAL defaults to 5 minutes
