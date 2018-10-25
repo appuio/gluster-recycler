@@ -168,6 +168,9 @@ clear_volume() {
     return 1
   fi
 
+  # try to remove the trashcan but ignore errors if it fails
+  rm -rf "${path}/.trashcan" || :
+
   # reset owner to root
   chown -R -c root:root "$path"
   if [[ "$?" != 0 ]]; then
