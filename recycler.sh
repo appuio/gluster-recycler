@@ -261,10 +261,10 @@ recycle_volume() {
 
   bits=$(jq -r --arg annotname "$ANNOTATION_FAILED_AT" '@sh "
     vol_name=\(.metadata.name)
-    vol_path=\(.spec.glusterfs.path)
-    vol_phase=\(.status.phase)
+    vol_path=\(.spec.glusterfs.path // "")
+    vol_phase=\(.status.phase // "")
     vol_isgluster=\(if .spec.glusterfs then "yes" else "" end)
-    vol_message=\(.status.message)
+    vol_message=\(.status.message // "")
     vol_failed_at=\(.metadata.annotations[$annotname] // "")
     "' < "$volfile")
 
@@ -285,31 +285,23 @@ recycle_volume() {
   # so that we only try to recycle volumes which have been given back to the cluster and don't have a valid
   # recycler plugin.
 
-  if [[ "$vol_phase" != Failed ]]; then
+  if [[ -z "$vol_isgluster" || -z "$vol_endpoints" ]]; then
+    # Not an acceptable Gluster volume
     return
   fi
 
-  if is_debug; then
-    echo "Volume $vol_name is in Failed state!"
-  fi
-
-  if [[ -z "$vol_isgluster" ]]; then
-    # Not a Gluster volume
+  if [[ "$vol_phase" == Failed ]]; then
+    case "$vol_message" in
+      'no volume plugin matched' | \
+      'No recycler plugin found for the volume!')
+        ;;
+      *)
+        return
+        ;;
+    esac
+  elif ! [[ "$vol_phase" == Released && -z "$vol_message" ]]; then
     return
   fi
-
-  if is_debug; then
-    echo "Volume ${vol_name} is a glusterfs volume and is in a failed state"
-  fi
-
-  case "$vol_message" in
-    'no volume plugin matched' | \
-    'No recycler plugin found for the volume!')
-      ;;
-    *)
-      return
-      ;;
-  esac
 
   if [[ "$DELAY" != 0 ]]; then
     if [[ -z "$vol_failed_at" ]]; then
@@ -391,7 +383,7 @@ while true; do
   is_debug && echo "result of api call: $vol_list"
 
   echo "$vol_list" | \
-    jq -r '.items | map(select(.status.phase == "Failed"))' \
+    jq -r '.items | map(select(.status.phase == "Failed" or .status.phase == "Released"))' \
     > "${tmpdir}/failed.json"
 
   num_vols=$(jq -r length < "${tmpdir}/failed.json")

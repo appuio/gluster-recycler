@@ -23,10 +23,11 @@ The Gluster recycler is a shell script running in a container which is given
 access to the Kubernetes API and uses the GlusterFS FUSE client binaries for
 mounting GlusterFS volumes. It runs in a loop (every 5 minutes by default)
 getting a list of persistent volumes and examining their state. For each volume
-that it finds in a failed state with the message "no volume plugin matched" it
-mounts it, removes all of the files, and then deletes and re-creates the volume
-in OpenShift. This effectively recycles the volume making it clean and
-available for use with new persistentVolumeClaims.
+that it finds in a failed state with the message "no volume plugin matched" or
+in a released state without message it mounts it, removes all of the files, and
+then deletes and re-creates the volume in OpenShift. This effectively recycles
+the volume making it clean and available for use with new
+persistentVolumeClaims.
 
 
 ## Service Account
