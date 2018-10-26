@@ -12,9 +12,10 @@ parameters:
 - description: 'The name of the namespace being deployed into (sorry, templates cant look this up)'
   name: NAMESPACE
   required: true
-- description: 'A semi-colon ";" separated list of glusterfs hosts that make up your glusterfs cluster (only one cluster supported).'
+- description: >-
+    A semi-colon separated list of GlusterFS volume file servers; if not specified the endpoint
+    object named in the persistent volume object is retrieved from the recycler pod namespace
   name: GLUSTER_HOSTS
-  required: true
 - description: 'Cronjob execution schedule in cron format'
   name: SCHEDULE
   required: false
@@ -59,6 +60,12 @@ objects:
     apiGroups:
     resources:
     - persistentvolumes
+  - verbs:
+    - get
+    attributeRestrictions:
+    apiGroups:
+    resources:
+    - endpoints
 
 - apiVersion: v1
   groupNames: null
@@ -119,6 +126,10 @@ objects:
                 value: ${DEBUG}
               - name: TZ
                 value: ${TIMEZONE}
+              - name: GLUSTER_OBJECT_NAMESPACE
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
               args:
                 - "/recycler.sh"
               securityContext:

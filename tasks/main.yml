@@ -71,7 +71,7 @@
         app_name: gluster-recycler
         arguments:
           NAMESPACE: "{{ appuio_gluster_recycler_namespace }}"
-          GLUSTER_HOSTS: "{{ appuio_gluster_recycler_gluster_hosts | mandatory }}"
+          GLUSTER_HOSTS: "{{ appuio_gluster_recycler_gluster_hosts | string }}"
           SCHEDULE: "{{ appuio_gluster_recycler_schedule | string }}"
           DELAY: "{{ appuio_gluster_recycler_delay_seconds | string }}"
           TIMEZONE: "{{ appuio_gluster_recycler_timezone }}"

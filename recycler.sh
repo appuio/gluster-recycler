@@ -24,7 +24,7 @@
 #####################################################################################
 # Inputs are ENVIRONMENT VARIABLES
 #
-# CLUSTER - the address string of the gluster cluster, e.g.
+# CLUSTER - the address string of the gluster cluster
 # INTERVAL - the pause between recyle runs in seconds (default 5 minutes)
 # DELAY - number of seconds to delay recycling after pv has first been seen in failed state
 # DEBUG - set to 'true' to enable detailed logging.
@@ -88,17 +88,19 @@ fi
 CURL=( curl -s -H "Authorization: bearer $KUBE_TOKEN" "${CAOPTS[@]}" )
 HOSTURL="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
 
-# Check that the CLUSTER variable has been set
-if [[ "$CLUSTER" == "" ]]; then
-  echo "Error: You MUST set the environment variable CLUSTER with the address of your gluster cluster!"
+# Permit separating Gluster hosts with both ";" and "," (Gluster FUSE requires
+# comma)
+CLUSTER=${CLUSTER/;/,}
+
+if [[ -n "$CLUSTER" ]]; then
+  echo "Gluster cluster: $CLUSTER"
+elif [[ -n "$GLUSTER_OBJECT_NAMESPACE" ]]; then
+  echo "Gluster object namespace: $GLUSTER_OBJECT_NAMESPACE"
+else
+  echo "Error: Environment variable \"CLUSTER\" or \"GLUSTER_OBJECT_NAMESPACE\" must be set"
   sleep 60
   exit 1
-else
-  echo "gluster cluster: $CLUSTER"
 fi
-# Allow people to use pipe to separate the gluster hosts with a ;
-# because using a ',' in openshift template parameters is hard.
-CLUSTER=${CLUSTER/;/,}
 
 # INTERVAL defaults to 5 minutes
 [[ "$INTERVAL" == "" ]] && INTERVAL=300
@@ -248,10 +250,12 @@ recycle_volume() {
   local volfile="$1"
   local vol_name
   local vol_path
+  local vol_endpoints
   local vol_isgluster
   local vol_message
   local vol_failed_at
   local bits
+  local gluster_endpoints
 
   if is_debug; then
     echo "Examining the following volume:"
@@ -260,10 +264,11 @@ recycle_volume() {
 
   bits=$(jq -r --arg annotname "$ANNOTATION_FAILED_AT" '@sh "
     vol_name=\(.metadata.name)
-    vol_path=\(.spec.glusterfs.path)
-    vol_phase=\(.status.phase)
+    vol_path=\(.spec.glusterfs.path // "")
+    vol_endpoints=\(.spec.glusterfs.endpoints // "")
+    vol_phase=\(.status.phase // "")
     vol_isgluster=\(if .spec.glusterfs then "yes" else "" end)
-    vol_message=\(.status.message)
+    vol_message=\(.status.message // "")
     vol_failed_at=\(.metadata.annotations[$annotname] // "")
     "' < "$volfile")
 
@@ -284,31 +289,23 @@ recycle_volume() {
   # so that we only try to recycle volumes which have been given back to the cluster and don't have a valid
   # recycler plugin.
 
-  if [[ "$vol_phase" != Failed ]]; then
+  if [[ -z "$vol_isgluster" || -z "$vol_endpoints" ]]; then
+    # Not an acceptable Gluster volume
     return
   fi
 
-  if is_debug; then
-    echo "Volume $vol_name is in Failed state!"
-  fi
-
-  if [[ -z "$vol_isgluster" ]]; then
-    # Not a Gluster volume
+  if [[ "$vol_phase" == Failed ]]; then
+    case "$vol_message" in
+      'no volume plugin matched' | \
+      'No recycler plugin found for the volume!')
+        ;;
+      *)
+        return
+        ;;
+    esac
+  elif ! [[ "$vol_phase" == Released && -z "$vol_message" ]]; then
     return
   fi
-
-  if is_debug; then
-    echo "Volume ${vol_name} is a glusterfs volume and is in a failed state"
-  fi
-
-  case "$vol_message" in
-    'no volume plugin matched' | \
-    'No recycler plugin found for the volume!')
-      ;;
-    *)
-      return
-      ;;
-  esac
 
   if [[ "$DELAY" != 0 ]]; then
     if [[ -z "$vol_failed_at" ]]; then
@@ -345,16 +342,41 @@ recycle_volume() {
 
   echo "Recycling volume ${vol_name}"
 
+  if [[ -n "$CLUSTER" ]]; then
+    gluster_endpoints="$CLUSTER"
+  elif [[ -n "$GLUSTER_OBJECT_NAMESPACE" ]]; then
+    local gluster_endpoints_json
+
+    gluster_endpoints_json=$(api_call GET "/api/v1/namespaces/${GLUSTER_OBJECT_NAMESPACE}/endpoints/${vol_endpoints}")
+    if [[ "$?" != 0 ]]; then
+      echo "Couldn't get endpoint object \"${vol_endpoints}\" from namespace \"${GLUSTER_OBJECT_NAMESPACE}\":"
+      echo "$gluster_endpoints_json"
+      return
+    fi
+
+    gluster_endpoints=$(
+      echo "$gluster_endpoints_json" | \
+      jq -r '[.subsets[].addresses[].ip] | select(.) | sort | join(",")'
+      )
+    if [[ "$?" != 0 ]]; then
+      echo "Failed to extract endpoints:"
+      echo "$gluster_endpoints_json"
+      return
+    fi
+  else
+    return
+  fi
+
   # mount the volume
   if is_debug; then
-    echo "Mounting volume: mount.glusterfs \"${CLUSTER}:${vol_path}\" \"${mountdir}\""
+    echo "Mounting volume: mount.glusterfs \"${gluster_endpoints}:${vol_path}\" \"${mountdir}\""
   fi
 
   if [[ ! -d "$mountdir" ]]; then
     mkdir "$mountdir"
   fi
 
-  mount.glusterfs "${CLUSTER}:${vol_path}" "$mountdir"
+  mount.glusterfs "${gluster_endpoints}:${vol_path}" "$mountdir"
   if [[ "$?" != "0" ]]; then
     echo "ERROR: Unable to mount the volume"
     return
@@ -390,7 +412,7 @@ while true; do
   is_debug && echo "result of api call: $vol_list"
 
   echo "$vol_list" | \
-    jq -r '.items | map(select(.status.phase == "Failed"))' \
+    jq -r '.items | map(select(.status.phase == "Failed" or .status.phase == "Released"))' \
     > "${tmpdir}/failed.json"
 
   num_vols=$(jq -r length < "${tmpdir}/failed.json")

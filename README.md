@@ -23,10 +23,11 @@ The Gluster recycler is a shell script running in a container which is given
 access to the Kubernetes API and uses the GlusterFS FUSE client binaries for
 mounting GlusterFS volumes. It runs in a loop (every 5 minutes by default)
 getting a list of persistent volumes and examining their state. For each volume
-that it finds in a failed state with the message "no volume plugin matched" it
-mounts it, removes all of the files, and then deletes and re-creates the volume
-in OpenShift. This effectively recycles the volume making it clean and
-available for use with new persistentVolumeClaims.
+that it finds in a failed state with the message "no volume plugin matched" or
+in a released state without message it mounts it, removes all of the files, and
+then deletes and re-creates the volume in OpenShift. This effectively recycles
+the volume making it clean and available for use with new
+persistentVolumeClaims.
 
 
 ## Service Account
@@ -53,16 +54,16 @@ finds on the volumes which it is recycling.
 
 ## Role Variables
 
-| Name                                  | Default value                                  | Description                                                          |
-|---------------------------------------|------------------------------------------------|----------------------------------------------------------------------|
-| appuio_gluster_recycler_repo          | https://github.com/appuio/gluster-recycler.git | Source repository to build the Gluster recycler from                 |
-| appuio_gluster_recycler_repo_rev      | master                                         | Version of the Gluster recycler to build, i.e. Git ref of repo above |
-| appuio_gluster_recycler_namespace     | appuio-infra                                   | Namespace to install Gluster recycler into                           |
-| appuio_gluster_recycler_image         | None                                           | Image for recycler, uses image built on cluster by default           |
-| appuio_gluster_recycler_gluster_hosts | None (required)                                | Semi-colon separated list of gluster hosts                           |
-| appuio_gluster_recycler_schedule      | \*/5 \* \* \* \*                               | Execution schedule in cron format                                    |
-| appuio_gluster_recycler_delay_seconds | 0                                              | Time in seconds to wait before recycling a volume after it failed    |
-| appuio_gluster_recycler_timezone      | *appuio_container_timezone*, UTC               | Timezone of the container                                            |
+| Name                                  | Default value                                  | Description                                                                   |
+|---------------------------------------|------------------------------------------------|-------------------------------------------------------------------------------|
+| appuio_gluster_recycler_repo          | https://github.com/appuio/gluster-recycler.git | Source repository to build the Gluster recycler from                          |
+| appuio_gluster_recycler_repo_rev      | master                                         | Version of the Gluster recycler to build, i.e. Git ref of repo above          |
+| appuio_gluster_recycler_namespace     | appuio-infra                                   | Namespace to install Gluster recycler into                                    |
+| appuio_gluster_recycler_image         | None                                           | Image for recycler, uses image built on cluster by default                    |
+| appuio_gluster_recycler_gluster_hosts | None                                           | Semicolon separated list of Gluster hosts, defaults to endpoints in PV object |
+| appuio_gluster_recycler_schedule      | \*/5 \* \* \* \*                               | Execution schedule in cron format                                             |
+| appuio_gluster_recycler_delay_seconds | 0                                              | Time in seconds to wait before recycling a volume after it failed             |
+| appuio_gluster_recycler_timezone      | *appuio_container_timezone*, UTC               | Timezone of the container                                                     |
 
 
 ## Dependencies
