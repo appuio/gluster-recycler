@@ -3,7 +3,7 @@ kind: Template
 apiVersion: v1
 metadata:
   annotations:
-    description: "Setup for glusterfs persistent volume recycler.  Creates all the required objects and deploys the pod."
+    description: Setup for GlusterFS persistent volume recycler
     version: '1.0.0'
   name: setup-recycler
 labels:
@@ -15,10 +15,10 @@ parameters:
 - description: 'A semi-colon ";" separated list of glusterfs hosts that make up your glusterfs cluster (only one cluster supported).'
   name: GLUSTER_HOSTS
   required: true
-- description: 'Interval in seconds between recycler runs (defaults to every 5 minutes)'
-  name: INTERVAL
+- description: 'Cronjob execution schedule in cron format'
+  name: SCHEDULE
   required: false
-  value: "300"
+  value: "*/5 * * * *"
 - description: 'Delay in seconds before a volume is recycled after it failed (defaults to no delay)'
   name: DELAY
   required: false
@@ -27,46 +27,21 @@ parameters:
   name: DEBUG
   required: false
   value: "false"
-- description: Base image for recycler, registry.access.redhat.com/rhel7 or centos:7, defaults to the former
-  name: BASE_IMAGE
-  required: true
-  value: registry.access.redhat.com/rhel7
-- description: 'Source Repo for recycler'
-  name: SOURCE_REPO
-  required: true
-  value: "https://github.com/appuio/gluster-recycler.git"
-- description: 'Gluster recycler version, i.e. git ref of the specified repository'
-  name: SOURCE_REF
-  value: master
-  required: true
 - description: 'Timezone (TZ) of the container, see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones for a list'
   name: TIMEZONE
   value: UTC
   required: true
+- description: 'Name of image stream for recycler container'
+  name: IMAGE_STREAM_NAME
+  value: gluster-recycler
+  required: true
 objects:
-- apiVersion: v1
-  kind: ImageStream
-  metadata:
-    name: gluster-recycler-base
-  spec:
-    importPolicy:
-      scheduled:
-        true
-    tags:
-      - name: latest
-        from:
-          kind: DockerImage
-          name: ${BASE_IMAGE}
-        importPolicy:
-          scheduled: true
-- apiVersion: v1
-  kind: ImageStream
-  metadata:
-    name: gluster-recycler
+
 - apiVersion: v1
   kind: ServiceAccount
   metadata:
     name: gluster-recycler
+
 - kind: ClusterRole
   apiVersion: v1
   metadata:
@@ -84,6 +59,7 @@ objects:
     apiGroups:
     resources:
     - persistentvolumes
+
 - apiVersion: v1
   groupNames: null
   kind: ClusterRoleBinding
@@ -97,84 +73,56 @@ objects:
     namespace: ${NAMESPACE}
   userNames:
   - system:serviceaccount:${NAMESPACE}:gluster-recycler
-- apiVersion: v1
-  kind: BuildConfig
+
+- apiVersion: batch/v1beta1
+  kind: CronJob
   metadata:
-    creationTimestamp: null
-    labels:
-      app: gluster-recycler
     name: gluster-recycler
+    annotations:
+      # https://docs.openshift.com/container-platform/3.9/dev_guide/managing_images.html#image-stream-kubernetes-resources
+      image.openshift.io/triggers: |-
+        [{
+          "from": {
+            "kind": "ImageStreamTag",
+            "name": "${IMAGE_STREAM_NAME}:latest"
+          },
+          "fieldPath": "spec.jobTemplate.spec.template.spec.containers[?(@.name==\"gluster-recycler\")].image"
+        }]
   spec:
-    output:
-      to:
-        kind: ImageStreamTag
-        name: gluster-recycler:latest
-    postCommit: {}
-    resources: {}
-    source:
-      git:
-        uri: ${SOURCE_REPO}
-        ref: ${SOURCE_REF}
-      secrets: []
-      type: Git
-    strategy:
-      type: Docker
-      dockerStrategy:
-        from:
-          kind: ImageStreamTag
-          name: gluster-recycler-base:latest
-    triggers:
-    - type: ConfigChange
-    - imageChange: {}
-      type: ImageChange
-- apiVersion: v1
-  kind: DeploymentConfig
-  metadata:
-    labels:
-    name: gluster-recycler
-  spec:
-    replicas: 1
-    revisionHistoryLimit: 2
-    selector:
-      name: gluster-recycler
-    strategy:
-      type: Recreate
-    template:
-      metadata:
-        labels:
-          name: gluster-recycler
-        name: gluster-recycler
+    schedule: ${SCHEDULE}
+    failedJobsHistoryLimit: 10
+    successfulJobsHistoryLimit: 10
+    concurrencyPolicy: Forbid
+    jobTemplate:
       spec:
-        containers:
-        - name: gluster-recycler
-          image: gluster-recycler
-          imagePullPolicy: Always
-          env:
-          - name: INTERVAL
-            value: ${INTERVAL}
-          - name: DELAY
-            value: ${DELAY}
-          - name: CLUSTER
-            value: ${GLUSTER_HOSTS}
-          - name: DEBUG
-            value: ${DEBUG}
-          - name: TZ
-            value: ${TIMEZONE}
-          args:
-            - "bash"
-            - "-c"
-            - "/recycler.sh"
-          securityContext:
-            privileged: true
-        restartPolicy: Always
-        serviceAccountName: gluster-recycler
-    triggers:
-    - type: ConfigChange
-    - type: ImageChange
-      imageChangeParams:
-        automatic: true
-        from:
-          kind: ImageStream
-          name: gluster-recycler
-        containerNames:
-        - gluster-recycler
+        activeDeadlineSeconds: 7200
+        completions: 1
+        # Don't retry failed executions
+        backoffLimit: 0
+        template:
+          metadata:
+            labels:
+              name: gluster-recycler
+          spec:
+            containers:
+            - name: gluster-recycler
+              image: " "
+              imagePullPolicy: IfNotPresent
+              env:
+              - name: ONESHOT
+                value: "true"
+              - name: DELAY
+                value: ${DELAY}
+              - name: CLUSTER
+                value: ${GLUSTER_HOSTS}
+              - name: DEBUG
+                value: ${DEBUG}
+              - name: TZ
+                value: ${TIMEZONE}
+              args:
+                - "/recycler.sh"
+              securityContext:
+                privileged: true
+            serviceAccountName: gluster-recycler
+            # https://github.com/kubernetes/kubernetes/issues/54870
+            restartPolicy: Never

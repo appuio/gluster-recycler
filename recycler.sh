@@ -28,6 +28,7 @@
 # INTERVAL - the pause between recyle runs in seconds (default 5 minutes)
 # DELAY - number of seconds to delay recycling after pv has first been seen in failed state
 # DEBUG - set to 'true' to enable detailed logging.
+# ONESHOT - set to 'true' to exit after one iteration
 
 ANNOTATION_FAILED_AT=appuio.ch/failed-at
 
@@ -36,6 +37,10 @@ if [[ ! $DELAY =~ [0-9]+ ]]; then
   DELAY="0"
   echo "DELAY is not a number, ignoring!" >&2
 fi
+
+is_oneshot() {
+  [[ "$ONESHOT" == true ]]
+}
 
 is_debug() {
   [[ "$DEBUG" == true ]]
@@ -372,41 +377,41 @@ recycle_volume() {
   fi
 }
 
-# start the loop
-while true
-do
-
+while true; do
   # Get a list of physical volumes and their status
   is_debug && echo "Getting a list of persistentvolumes..."
   vol_list=$(api_call GET /api/v1/persistentvolumes)
-  if [ "$?" -eq "0" ]; then
-    is_debug && echo "result of api call: $vol_list"
-
-    echo "$vol_list" | \
-      jq -r '.items | map(select(.status.phase == "Failed"))' \
-      > "${tmpdir}/failed.json"
-
-    num_vols=$(jq -r length < "${tmpdir}/failed.json")
-
-    echo "$(date -Is): ${num_vols} failed volumes found"
-
-    # interate over the persistent volumes a volume at a time
-    for i in $(seq 0 $((num_vols - 1))); do
-      jq -r --argjson idx "$i" '.[$idx]' \
-        < "${tmpdir}/failed.json" \
-        > "${tmpdir}/volume.json"
-
-      recycle_volume "${tmpdir}/volume.json"
-    done
-    echo "Finished recycle run"
-
-  else
+  if [ "$?" -ne "0" ]; then
     echo "ERROR! Could not get list of volumes from the API!"
     sleep 60
     exit 1
   fi
 
-  # wait for next run through
+  is_debug && echo "result of api call: $vol_list"
+
+  echo "$vol_list" | \
+    jq -r '.items | map(select(.status.phase == "Failed"))' \
+    > "${tmpdir}/failed.json"
+
+  num_vols=$(jq -r length < "${tmpdir}/failed.json")
+
+  echo "$(date -Is): ${num_vols} failed volumes found"
+
+  # interate over the persistent volumes a volume at a time
+  for i in $(seq 0 $((num_vols - 1))); do
+    jq -r --argjson idx "$i" '.[$idx]' \
+      < "${tmpdir}/failed.json" \
+      > "${tmpdir}/volume.json"
+
+    recycle_volume "${tmpdir}/volume.json"
+  done
+  echo "Finished recycle run"
+
+  if is_oneshot; then
+    break
+  fi
+
+  # Wait for next iteration
   sleep $INTERVAL
 
 done
