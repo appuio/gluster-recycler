@@ -376,9 +376,16 @@ recycle_volume() {
     mkdir "$mountdir"
   fi
 
-  mount.glusterfs "${gluster_endpoints}:${vol_path}" "$mountdir"
+  local logfile="${tmpdir}/mount.log"
+
+  # Clear logfile
+  :>"$logfile"
+
+  mount.glusterfs "${gluster_endpoints}:${vol_path}" "$mountdir" \
+    -o log-level=INFO,log-file="${logfile}"
   if [[ "$?" != "0" ]]; then
     echo "ERROR: Unable to mount the volume"
+    cat "$logfile"
     return
   fi
 
@@ -387,6 +394,8 @@ recycle_volume() {
   local recreate=
   if clear_volume "$mountdir"; then
     recreate=yes
+  else
+    cat "$logfile"
   fi
 
   if is_debug; then
