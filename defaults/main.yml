@@ -7,3 +7,4 @@ appuio_gluster_recycler_image: null
 appuio_gluster_recycler_schedule: "*/5 * * * *"
 appuio_gluster_recycler_delay_seconds: 0
 appuio_gluster_recycler_timezone: "{{ appuio_container_timezone | default('UTC') }}"
+appuio_gluster_recycler_node_selector: {}

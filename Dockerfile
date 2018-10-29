@@ -28,5 +28,7 @@ RUN \
 RUN chmod +x /tini
 ENTRYPOINT ["/tini", "--"]
 
+RUN mkdir -p /var/lib/glusterd
+
 ADD recycler.sh /
 CMD /recycler.sh

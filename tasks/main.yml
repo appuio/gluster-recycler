@@ -76,6 +76,7 @@
           DELAY: "{{ appuio_gluster_recycler_delay_seconds | string }}"
           TIMEZONE: "{{ appuio_gluster_recycler_timezone }}"
           IMAGE_STREAM_NAME: "{{ r_selected.image_stream_name }}"
+          NODE_SELECTOR_JSON: "{{ appuio_gluster_recycler_node_selector | to_json | string }}"
 
     - name: Remove recycler objects
       vars:

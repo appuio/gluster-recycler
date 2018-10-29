@@ -36,6 +36,9 @@ parameters:
   name: IMAGE_STREAM_NAME
   value: gluster-recycler
   required: true
+- description: Node selector for recycler pod in JSON format
+  name: NODE_SELECTOR_JSON
+  value: "{}"
 objects:
 
 - apiVersion: v1
@@ -66,6 +69,12 @@ objects:
     apiGroups:
     resources:
     - endpoints
+
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: gluster-recycler
+  data: {}
 
 - apiVersion: v1
   groupNames: null
@@ -100,6 +109,7 @@ objects:
     failedJobsHistoryLimit: 10
     successfulJobsHistoryLimit: 10
     concurrencyPolicy: Forbid
+    startingDeadlineSeconds: 86400
     jobTemplate:
       spec:
         activeDeadlineSeconds: 7200
@@ -130,10 +140,19 @@ objects:
                 valueFrom:
                   fieldRef:
                     fieldPath: metadata.namespace
-              args:
-                - "/recycler.sh"
+              args: []
               securityContext:
                 privileged: true
+              volumeMounts:
+                - name: secrets
+                  mountPath: /recycler-secrets
+                  readOnly: true
             serviceAccountName: gluster-recycler
             # https://github.com/kubernetes/kubernetes/issues/54870
             restartPolicy: Never
+            nodeSelector: ${{NODE_SELECTOR_JSON}}
+            volumes:
+              - name: secrets
+                secret:
+                  defaultMode: 400
+                  secretName: gluster-recycler
