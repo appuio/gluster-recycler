@@ -31,6 +31,7 @@
 # ONESHOT - set to 'true' to exit after one iteration
 
 ANNOTATION_FAILED_AT=appuio.ch/failed-at
+SECRETS_DIR=/recycler-secrets
 
 DELAY="${DELAY:-0}"
 if [[ ! $DELAY =~ [0-9]+ ]]; then
@@ -100,6 +101,18 @@ else
   echo "Error: Environment variable \"CLUSTER\" or \"GLUSTER_OBJECT_NAMESPACE\" must be set"
   sleep 60
   exit 1
+fi
+
+if [[ -e "${SECRETS_DIR}/tls.key" &&
+      -e "${SECRETS_DIR}/tls.crt" &&
+      -e "${SECRETS_DIR}/tls.ca" ]]; then
+  echo "TLS support enabled"
+  cp -v "${SECRETS_DIR}/tls.key" /etc/ssl/glusterfs.key
+  cp -v "${SECRETS_DIR}/tls.crt" /etc/ssl/glusterfs.pem
+  cp -v "${SECRETS_DIR}/tls.ca" /etc/ssl/glusterfs.ca
+  touch /var/lib/glusterd/secure-access
+else
+  rm -f /var/lib/glusterd/secure-access
 fi
 
 # INTERVAL defaults to 5 minutes

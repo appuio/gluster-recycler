@@ -71,6 +71,12 @@ objects:
     - endpoints
 
 - apiVersion: v1
+  kind: Secret
+  metadata:
+    name: gluster-recycler
+  data: {}
+
+- apiVersion: v1
   groupNames: null
   kind: ClusterRoleBinding
   metadata:
@@ -137,7 +143,16 @@ objects:
               args: []
               securityContext:
                 privileged: true
+              volumeMounts:
+                - name: secrets
+                  mountPath: /recycler-secrets
+                  readOnly: true
             serviceAccountName: gluster-recycler
             # https://github.com/kubernetes/kubernetes/issues/54870
             restartPolicy: Never
             nodeSelector: ${{NODE_SELECTOR_JSON}}
+            volumes:
+              - name: secrets
+                secret:
+                  defaultMode: 400
+                  secretName: gluster-recycler

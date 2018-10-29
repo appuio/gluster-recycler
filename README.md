@@ -67,6 +67,20 @@ finds on the volumes which it is recycling.
 | appuio_gluster_recycler_node_selector | {}                                             | Node selector for recycler pods                                               |
 
 
+## TLS support
+
+A secret named `gluster-recycler` is automatically created in the namespace
+named in `appuio_gluster_recycler_namespace`. To enable TLS support on the
+management path and volume traffic the secret must be configured with the
+following data:
+
+* `tls.key`: Private RSA key
+* `tls.crt`: Certificate for authenticating against Gluster storage servers
+* `tls.ca`: Recognized X.509 certificate authorities
+
+The `/var/lib/glusterd/secure-access` file is created automatically.
+
+
 ## Dependencies
 
 * <https://github.com/appuio/ansible-module-openshift>
