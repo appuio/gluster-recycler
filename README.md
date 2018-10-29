@@ -64,6 +64,7 @@ finds on the volumes which it is recycling.
 | appuio_gluster_recycler_schedule      | \*/5 \* \* \* \*                               | Execution schedule in cron format                                             |
 | appuio_gluster_recycler_delay_seconds | 0                                              | Time in seconds to wait before recycling a volume after it failed             |
 | appuio_gluster_recycler_timezone      | *appuio_container_timezone*, UTC               | Timezone of the container                                                     |
+| appuio_gluster_recycler_node_selector | {}                                             | Node selector for recycler pods                                               |
 
 
 ## Dependencies
@@ -80,4 +81,6 @@ roles:
 - role: gluster-recycler
   appuio_gluster_recycler_gluster_hosts: gluster1.example.com;gluster2.example.com
   appuio_gluster_recycler_delay: "{{ 7 * 24 * 60 * 60 }}"  # 7 days
+  appuio_gluster_recycler_node_selector:
+    region: infra
 ```

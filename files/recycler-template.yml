@@ -36,6 +36,9 @@ parameters:
   name: IMAGE_STREAM_NAME
   value: gluster-recycler
   required: true
+- description: Node selector for recycler pod in JSON format
+  name: NODE_SELECTOR_JSON
+  value: "{}"
 objects:
 
 - apiVersion: v1
@@ -137,3 +140,4 @@ objects:
             serviceAccountName: gluster-recycler
             # https://github.com/kubernetes/kubernetes/issues/54870
             restartPolicy: Never
+            nodeSelector: ${{NODE_SELECTOR_JSON}}
