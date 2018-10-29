@@ -90,7 +90,7 @@ objects:
   userNames:
   - system:serviceaccount:${NAMESPACE}:gluster-recycler
 
-- apiVersion: batch/v1beta1
+- apiVersion: batch/v2alpha1
   kind: CronJob
   metadata:
     name: gluster-recycler
@@ -148,8 +148,10 @@ objects:
                   mountPath: /recycler-secrets
                   readOnly: true
             serviceAccountName: gluster-recycler
+            # TODO: Switch to "Never" once OpenShift 3.7 doesn't need to be
+            # supported anymore
             # https://github.com/kubernetes/kubernetes/issues/54870
-            restartPolicy: Never
+            restartPolicy: OnFailure
             nodeSelector: ${{NODE_SELECTOR_JSON}}
             volumes:
               - name: secrets
