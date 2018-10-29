@@ -133,8 +133,7 @@ objects:
                 valueFrom:
                   fieldRef:
                     fieldPath: metadata.namespace
-              args:
-                - "/recycler.sh"
+              args: []
               securityContext:
                 privileged: true
             serviceAccountName: gluster-recycler
