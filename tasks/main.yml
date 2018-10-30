@@ -52,31 +52,38 @@
         - recycler-build.yml
         - recycler-template.yml
         - recycler-external.yml
+        - recycler-cronjob.yml
+        - recycler-cronjob-v3.7.yml
       copy:
         src: "{{ role_path }}/files/{{ item }}"
         dest: "{{ tempdir.path }}/{{ item }}"
       changed_when: False
 
-    - name: Instantiate base recycler template
+    - name: Instantiate recycler template
+      vars:
+        r_openshift_release: "{{ openshift_release | default('') | regex_replace('^v', '') }}"
+        r_use_37_variant: >-
+          {{ r_openshift_release and r_openshift_release is version_compare('3.9', '<') }}
+      with_list:
+        - template: "{{ r_selected.template }}"
+          args: "{{ r_selected.args }}"
+        - template: recycler-template.yml
+          args:
+            NAMESPACE: "{{ appuio_gluster_recycler_namespace }}"
+        - template: "{{ r_use_37_variant | ternary('recycler-cronjob-v3.7.yml', 'recycler-cronjob.yml') }}"
+          args:
+            GLUSTER_HOSTS: "{{ appuio_gluster_recycler_gluster_hosts | string }}"
+            SCHEDULE: "{{ appuio_gluster_recycler_schedule | string }}"
+            DELAY: "{{ appuio_gluster_recycler_delay_seconds | string }}"
+            TIMEZONE: "{{ appuio_gluster_recycler_timezone }}"
+            IMAGE_STREAM_NAME: "{{ r_selected.image_stream_name }}"
+            NODE_SELECTOR_JSON: "{{ appuio_gluster_recycler_node_selector | to_json | string }}"
+            IMAGE: "{{ r_image | default(' ', boolean=True) }}"
       openshift_resource:
         namespace: "{{ appuio_gluster_recycler_namespace }}"
-        template: "{{ tempdir.path }}/{{ r_selected.template }}"
+        template: "{{ tempdir.path }}/{{ item.template }}"
         app_name: gluster-recycler
-        arguments: "{{ r_selected.args }}"
-
-    - name: Instantiate main recycler template
-      openshift_resource:
-        namespace: "{{ appuio_gluster_recycler_namespace }}"
-        template: "{{ tempdir.path }}/recycler-template.yml"
-        app_name: gluster-recycler
-        arguments:
-          NAMESPACE: "{{ appuio_gluster_recycler_namespace }}"
-          GLUSTER_HOSTS: "{{ appuio_gluster_recycler_gluster_hosts | string }}"
-          SCHEDULE: "{{ appuio_gluster_recycler_schedule | string }}"
-          DELAY: "{{ appuio_gluster_recycler_delay_seconds | string }}"
-          TIMEZONE: "{{ appuio_gluster_recycler_timezone }}"
-          IMAGE_STREAM_NAME: "{{ r_selected.image_stream_name }}"
-          NODE_SELECTOR_JSON: "{{ appuio_gluster_recycler_node_selector | to_json | string }}"
+        arguments: "{{ item.args }}"
 
     - name: Remove recycler objects
       vars:
@@ -86,6 +93,12 @@
         oc -n {{ appuio_gluster_recycler_namespace | quote }}
         delete --ignore-not-found
         {{ r_obj | map("quote") | join(" ") }}
+
+    - name: Start build
+      when: not r_image
+      command: >-
+        oc -n {{ appuio_gluster_recycler_namespace | quote }}
+        start-build gluster-recycler
   always:
     - name: Delete temp directory
       file:
