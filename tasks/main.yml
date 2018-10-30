@@ -93,6 +93,12 @@
         oc -n {{ appuio_gluster_recycler_namespace | quote }}
         delete --ignore-not-found
         {{ r_obj | map("quote") | join(" ") }}
+
+    - name: Start build
+      when: not r_image
+      command: >-
+        oc -n {{ appuio_gluster_recycler_namespace | quote }}
+        start-build gluster-recycler
   always:
     - name: Delete temp directory
       file:
