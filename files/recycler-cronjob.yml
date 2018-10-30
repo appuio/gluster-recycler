@@ -35,6 +35,9 @@ parameters:
 - description: Node selector for recycler pod in JSON format
   name: NODE_SELECTOR_JSON
   value: "{}"
+- description: "Docker image to use (overwritten by trigger)"
+  name: IMAGE
+  value: " "
 objects:
 
 - apiVersion: batch/v1beta1
@@ -70,7 +73,7 @@ objects:
           spec:
             containers:
             - name: gluster-recycler
-              image: " "
+              image: ${IMAGE}
               imagePullPolicy: IfNotPresent
               env:
               - name: ONESHOT
