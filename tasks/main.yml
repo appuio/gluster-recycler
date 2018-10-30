@@ -52,18 +52,26 @@
         - recycler-build.yml
         - recycler-template.yml
         - recycler-external.yml
+        - recycler-cronjob.yml
+        - recycler-cronjob-v3.7.yml
       copy:
         src: "{{ role_path }}/files/{{ item }}"
         dest: "{{ tempdir.path }}/{{ item }}"
       changed_when: False
 
     - name: Instantiate recycler template
+      vars:
+        r_openshift_release: "{{ openshift_release | default('') | regex_replace('^v', '') }}"
+        r_use_37_variant: >-
+          {{ r_openshift_release and r_openshift_release is version_compare('3.9', '<') }}
       with_list:
         - template: "{{ r_selected.template }}"
           args: "{{ r_selected.args }}"
         - template: recycler-template.yml
           args:
             NAMESPACE: "{{ appuio_gluster_recycler_namespace }}"
+        - template: "{{ r_use_37_variant | ternary('recycler-cronjob-v3.7.yml', 'recycler-cronjob.yml') }}"
+          args:
             GLUSTER_HOSTS: "{{ appuio_gluster_recycler_gluster_hosts | string }}"
             SCHEDULE: "{{ appuio_gluster_recycler_schedule | string }}"
             DELAY: "{{ appuio_gluster_recycler_delay_seconds | string }}"
