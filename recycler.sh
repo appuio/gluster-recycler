@@ -110,6 +110,9 @@ if [[ -s "${SECRETS_DIR}/tls.key" &&
   cp -v "${SECRETS_DIR}/tls.key" /etc/ssl/glusterfs.key
   cp -v "${SECRETS_DIR}/tls.crt" /etc/ssl/glusterfs.pem
   cp -v "${SECRETS_DIR}/tls.ca" /etc/ssl/glusterfs.ca
+  if [[ -s "${SECRETS_DIR}/tls.dhparam" ]]; then
+    cp -v "${SECRETS_DIR}/tls.dhparam" /etc/ssl/dhparam.pem
+  fi
   touch /var/lib/glusterd/secure-access
 else
   rm -f /var/lib/glusterd/secure-access
