@@ -103,13 +103,16 @@ else
   exit 1
 fi
 
-if [[ -e "${SECRETS_DIR}/tls.key" &&
-      -e "${SECRETS_DIR}/tls.crt" &&
-      -e "${SECRETS_DIR}/tls.ca" ]]; then
+if [[ -s "${SECRETS_DIR}/tls.key" &&
+      -s "${SECRETS_DIR}/tls.crt" &&
+      -s "${SECRETS_DIR}/tls.ca" ]]; then
   echo "TLS support enabled"
   cp -v "${SECRETS_DIR}/tls.key" /etc/ssl/glusterfs.key
   cp -v "${SECRETS_DIR}/tls.crt" /etc/ssl/glusterfs.pem
   cp -v "${SECRETS_DIR}/tls.ca" /etc/ssl/glusterfs.ca
+  if [[ -s "${SECRETS_DIR}/tls.dhparam" ]]; then
+    cp -v "${SECRETS_DIR}/tls.dhparam" /etc/ssl/dhparam.pem
+  fi
   touch /var/lib/glusterd/secure-access
 else
   rm -f /var/lib/glusterd/secure-access
