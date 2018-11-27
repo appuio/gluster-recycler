@@ -241,7 +241,7 @@ recreate_volume() {
   if ! delete_result=$(api_call DELETE "/api/v1/persistentvolumes/${vol_name}"); then
     echo "ERROR: Couldn't delete volume ${vol_name} via Kubernetes API. The response was:"
     echo "$delete_result"
-    return
+    return 1
   fi
 
   if is_debug; then
@@ -254,12 +254,12 @@ recreate_volume() {
       echo "result of api call: $add_result"
     fi
     echo "Successfully re-cycled volume ${vol_name}"
-  else
-    echo "ERROR: Couldn't re-create volume ${vol_name} via Kubernetes API.  The response was:"
-    echo "$add_result"
+    return 0
   fi
 
-  return
+  echo "ERROR: Couldn't re-create volume ${vol_name} via Kubernetes API.  The response was:"
+  echo "$add_result"
+  return 1
 }
 
 recycle_volume() {
@@ -307,7 +307,7 @@ recycle_volume() {
 
   if [[ -z "$vol_isgluster" || -z "$vol_endpoints" ]]; then
     # Not an acceptable Gluster volume
-    return
+    return 0
   fi
 
   if [[ "$vol_phase" == Failed ]]; then
@@ -316,11 +316,11 @@ recycle_volume() {
       'No recycler plugin found for the volume!')
         ;;
       *)
-        return
+        return 0
         ;;
     esac
   elif ! [[ "$vol_phase" == Released && -z "$vol_message" ]]; then
-    return
+    return 0
   fi
 
   if [[ "$DELAY" != 0 ]]; then
@@ -343,16 +343,17 @@ recycle_volume() {
       if [[ "$?" != 0 ]]; then
         echo "Couldn't annotate ${vol_name} with failed timestamp. The response was:"
         echo "$patch_result"
+        return 1
       fi
 
-      return
+      return 0
     fi
 
     local now_minus_delay=$(date -Is "-d-${DELAY}sec")
 
     if [[ "$now_minus_delay" < "$vol_failed_at" ]]; then
       # Not enough time has passed
-      return
+      return 0
     fi
   fi
 
@@ -367,7 +368,7 @@ recycle_volume() {
     if [[ "$?" != 0 ]]; then
       echo "Couldn't get endpoint object \"${vol_endpoints}\" from namespace \"${GLUSTER_OBJECT_NAMESPACE}\":"
       echo "$gluster_endpoints_json"
-      return
+      return 1
     fi
 
     gluster_endpoints=$(
@@ -377,10 +378,11 @@ recycle_volume() {
     if [[ "$?" != 0 ]]; then
       echo "Failed to extract endpoints:"
       echo "$gluster_endpoints_json"
-      return
+      return 1
     fi
   else
-    return
+    echo 'Storage servers not specified'
+    return 1
   fi
 
   # mount the volume
@@ -402,27 +404,32 @@ recycle_volume() {
   if [[ "$?" != "0" ]]; then
     echo "ERROR: Unable to mount the volume"
     cat "$logfile"
-    return
+    return 1
   fi
 
   echo "Successfully mounted volume ${vol_name} to ${mountdir}"
 
-  local recreate=
-  if clear_volume "$mountdir"; then
-    recreate=yes
-  else
+  local failed=
+  if ! clear_volume "$mountdir"; then
+    failed=yes
     cat "$logfile"
   fi
 
   if is_debug; then
     echo "Unmounting $vol_name"
   fi
-  umount "$mountdir"
-
-  if [[ -n "$recreate" ]]; then
-    recreate_volume "$volfile"
+  if ! umount "$mountdir"; then
+    failed=yes
   fi
+
+  if [[ -z "$failed" ]] && ! recreate_volume "$volfile"; then
+    failed=yes
+  fi
+
+  [[ -z "$failed" ]]
 }
+
+exit_status=0
 
 while true; do
   # Get a list of physical volumes and their status
@@ -450,7 +457,9 @@ while true; do
       < "${tmpdir}/failed.json" \
       > "${tmpdir}/volume.json"
 
-    recycle_volume "${tmpdir}/volume.json"
+    if ! recycle_volume "${tmpdir}/volume.json"; then
+      exit_status=1
+    fi
   done
   echo "Finished recycle run"
 
@@ -460,6 +469,6 @@ while true; do
 
   # Wait for next iteration
   sleep $INTERVAL
-
 done
-exit 0
+
+exit "$exit_status"
