@@ -59,7 +59,7 @@ objects:
     failedJobsHistoryLimit: 3
     successfulJobsHistoryLimit: 3
     concurrencyPolicy: Forbid
-    startingDeadlineSeconds: 86400
+    startingDeadlineSeconds: 3600
     jobTemplate:
       spec:
         activeDeadlineSeconds: 7200
@@ -71,13 +71,20 @@ objects:
             labels:
               name: gluster-recycler
           spec:
+            activeDeadlineSeconds: 3600
             containers:
             - name: gluster-recycler
               image: ${IMAGE}
               imagePullPolicy: IfNotPresent
               env:
-              - name: ONESHOT
-                value: "true"
+              - name: POD_NAMESPACE
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
+              - name: POD_NAME
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.name
               - name: DELAY
                 value: ${DELAY}
               - name: CLUSTER

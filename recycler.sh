@@ -2,6 +2,7 @@
 #
 # Glusterfs volume recycler for use with Kubernetes
 # Copyright 2016 David McCormick
+# Copyright 2019 VSHN AG for APPUiO.ch
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +16,6 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 #
-# In an endless loop: -
 # Retrieves a list of persistentvolumes from kubernetes and for each glusterfs volume in a failed state:
 #  mount volume
 #  remove all contents
@@ -25,23 +25,27 @@
 # Inputs are ENVIRONMENT VARIABLES
 #
 # CLUSTER - the address string of the gluster cluster
-# INTERVAL - the pause between recyle runs in seconds (default 5 minutes)
 # DELAY - number of seconds to delay recycling after pv has first been seen in failed state
 # DEBUG - set to 'true' to enable detailed logging.
-# ONESHOT - set to 'true' to exit after one iteration
 
 ANNOTATION_FAILED_AT=appuio.ch/failed-at
 SECRETS_DIR=/recycler-secrets
 
+is_number() {
+  [[ "$1" =~ ^[0-9]+$ ]]
+}
+
 DELAY="${DELAY:-0}"
-if [[ ! $DELAY =~ [0-9]+ ]]; then
+if ! is_number "$DELAY"; then
   DELAY="0"
   echo "DELAY is not a number, ignoring!" >&2
 fi
 
-is_oneshot() {
-  [[ "$ONESHOT" == true ]]
-}
+: "${TIMEOUT_DELETE:=600}"
+if ! is_number "$TIMEOUT_DELETE"; then
+  echo "TIMEOUT_DELETE is not a number: ${TIMEOUT_DELETE}" >&2
+  exit 1
+fi
 
 is_debug() {
   [[ "$DEBUG" == true ]]
@@ -51,18 +55,17 @@ if is_debug; then
   set -x
 fi
 
-echo "glusterfs recycler is starting up"
-
 # Check we can find the Kubernetes service
-if [[ "${KUBERNETES_SERVICE_HOST}" == "" || "${KUBERNETES_SERVICE_PORT}" == "" ]]; then
-  echo "ERROR! The recycler needs to be able to find the Kubernetes API from the variables KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT."
-  echo "Are you running this container via Kubernetes/Openshift?  You can pass these as environment variables if you need to."
+if [[ -z "${KUBERNETES_SERVICE_HOST}" || -z "${KUBERNETES_SERVICE_PORT}" ]]; then
+  echo 'Kubernetes API is located via environment variables' \
+    'KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT, but at least one' \
+    'of them is not set'
   exit 1
 fi
 
 # Check that we have access to jq
-if [[ ! -e "/usr/bin/jq" && ! -e "/usr/local/bin/jq" ]]; then
-  echo "ERROR! The recycler needs access to the 'jq' utility to run - it should be included in /usr/bin or /usr/local/bin of this container!"
+if ! type -p jq >/dev/null; then
+  echo '"jq" utility is required to run"'
   exit 1
 fi
 
@@ -71,22 +74,27 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 # Go find our serviceaccount token
 KUBE_TOKEN=$(< /var/run/secrets/kubernetes.io/serviceaccount/token)
-is_debug && echo "Service Account Token is: $KUBE_TOKEN"
+if is_debug; then
+  echo "Service account token: $KUBE_TOKEN"
+fi
 
 # Select the ca options for curling the Kubernetes API
-is_debug && echo "Looking for /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-if [ -e /var/run/secrets/kubernetes.io/serviceaccount/ca.crt ]; then
-  CAOPTS=( --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt )
-  CERT=$(< /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
-  is_debug && echo "Found /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-  is_debug && echo "CA Certificate is $CERT "
-else
-  CAOPTS=( -k )
-  is_debug && echo "Could not find /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, using curl with -k option"
+k8s_cacert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+if ! [[ -e "$k8s_cacert" ]]; then
+  echo "Could not find ${k8s_cacert}" >&2
+  exit 1
+fi
+
+CAOPTS=( --cacert "$k8s_cacert" )
+if is_debug; then
+  {
+    echo "Using ${k8s_cacert} as CA file:"
+    cat $k8s_cacert
+  } >&2
 fi
 
 #API
-CURL=( curl -s -H "Authorization: bearer $KUBE_TOKEN" "${CAOPTS[@]}" )
+CURL=( curl -s -H "Authorization: bearer $KUBE_TOKEN" "${CAOPTS[@]}" --max-time 60 )
 HOSTURL="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
 
 # Permit separating Gluster hosts with both ";" and "," (Gluster FUSE requires
@@ -98,8 +106,7 @@ if [[ -n "$CLUSTER" ]]; then
 elif [[ -n "$GLUSTER_OBJECT_NAMESPACE" ]]; then
   echo "Gluster object namespace: $GLUSTER_OBJECT_NAMESPACE"
 else
-  echo "Error: Environment variable \"CLUSTER\" or \"GLUSTER_OBJECT_NAMESPACE\" must be set"
-  sleep 60
+  echo "Environment variable \"CLUSTER\" or \"GLUSTER_OBJECT_NAMESPACE\" must be set"
   exit 1
 fi
 
@@ -118,12 +125,7 @@ else
   rm -f /var/lib/glusterd/secure-access
 fi
 
-# INTERVAL defaults to 5 minutes
-[[ "$INTERVAL" == "" ]] && INTERVAL=300
-
-echo "checking for failed volumes every ${INTERVAL} seconds"
-echo "delaying recycling of failed volumes for ${DELAY} seconds"
-echo
+echo "Delaying recycling of failed volumes for ${DELAY} seconds"
 
 function api_call {
   local method=$1
@@ -131,7 +133,9 @@ function api_call {
   local body=$3
   local type="${4:-application/json}"
 
-  is_debug && echo >&2 "api_call method=$method call=$call body=$body"
+  if is_debug; then
+    echo "api_call method=$method call=$call body=$body" >&2
+  fi
 
   local curl_command=( "${CURL[@]}" -X "$method" )
 
@@ -140,35 +144,40 @@ function api_call {
     curl_command+=( -H "Content-Type: $type" -d "$body" )
   fi
   curl_command+=( "${HOSTURL}${call}" )
-  is_debug && echo >&2 command: "${curl_command[@]}"
+
+  if is_debug; then
+    echo command: "${curl_command[@]}" >&2
+  fi
 
   # In READONLY mode only allow GET's to run against the API
   if [[ "$READONLY" == "true" && "$method" != "GET" ]]; then
-    echo >&2 "READONLY MODE - would have performed this API call: $method $call"
+    echo "READONLY MODE: Would perform API call $method $call" >&2
     return 0
   fi
 
   # Execute the API call via curl and check for curl errors.
-  if command_result=$( "${curl_command[@]}" ); then
-    :
-  else
-    echo >&2 "ERROR! Curl command failed to run properly"
-    echo >&2 "$command_result"
+  if ! command_result=$( "${curl_command[@]}" ); then
+    echo "cURL failed: ${command_result}" >&2
     return 1
   fi
-  is_debug && echo >&2 "result: $command_result"
+
+  if is_debug; then
+    echo "result: $command_result" >&2
+  fi
 
   # Look at response and check for Kubernetes errors.
   local api_result=$(echo "$command_result" | jq -r '.status')
-  is_debug && echo >&2 "api_result: $api_result"
-  if [[ "$api_result" == "Failure" ]]; then
-    echo >&2 "ERROR API CALL FAILED!:-"
-    echo >&2 "$command_result"
-    return 1
-  else
-    echo "$command_result"
-    return 0
+  if is_debug; then
+    echo "api_result: $api_result" >&2
   fi
+  if [[ "$api_result" == "Failure" ]]; then
+    echo "API request ${method} ${call} failed: ${command_result}" >&2
+    return 1
+  fi
+
+  echo "$command_result"
+
+  return 0
 }
 
 clear_volume() {
@@ -185,9 +194,8 @@ clear_volume() {
   fi
 
   # delete all the files with -mindepth 1 so we don't try and remove the mount directory
-  find "$path" -mindepth 1 -not -path "${path}/.trashcan*" -delete
-  if [[ "$?" != 0 ]]; then
-    echo "ERROR: We could not remove all of the files in this volume!"
+  if ! timeout "${TIMEOUT_DELETE}s" find "$path" -mindepth 1 -not -path "${path}/.trashcan/*" -delete; then
+    echo "Removing volume content failed (timeout ${TIMEOUT_DELETE}s)"
     return 1
   fi
 
@@ -195,16 +203,14 @@ clear_volume() {
   rm -rf "${path}/.trashcan" || :
 
   # reset owner to root
-  chown -R -c root:root "$path"
-  if [[ "$?" != 0 ]]; then
-    echo "ERROR: We could not reset the owner to root for this Volume!"
+  if ! chown -R -c root:root "$path"; then
+    echo Resetting volume owner/group failed
     return 1
   fi
 
   # reset permissions
-  chmod -R -c 2775 "$path"
-  if [[ "$?" != 0 ]]; then
-    echo "ERROR: We could not reset the permissions for this Volume!"
+  if ! chmod -R -c 2775 "$path"; then
+    echo Resetting permissions failed
     return 1
   fi
 
@@ -233,33 +239,19 @@ recreate_volume() {
     > "$vol_def"
 
   if is_debug; then
-    echo "Sanitized volume config definition is:"
+    echo "Sanitized volume config definition:"
     cat "$vol_def"
     echo "Deleting ${vol_name}"
   fi
 
-  if ! delete_result=$(api_call DELETE "/api/v1/persistentvolumes/${vol_name}"); then
-    echo "ERROR: Couldn't delete volume ${vol_name} via Kubernetes API. The response was:"
-    echo "$delete_result"
+  # Replace object
+  if ! api_call PUT "/api/v1/persistentvolumes/${vol_name}" "@${vol_def}"; then
+    echo "Re-creating volume ${vol_name} failed"
     return 1
   fi
 
-  if is_debug; then
-    echo "result of api call: $delete_result"
-  fi
-
-  # re-create the object
-  if add_result=$(api_call POST /api/v1/persistentvolumes "@${vol_def}"); then
-    if is_debug; then
-      echo "result of api call: $add_result"
-    fi
-    echo "Successfully re-cycled volume ${vol_name}"
-    return 0
-  fi
-
-  echo "ERROR: Couldn't re-create volume ${vol_name} via Kubernetes API.  The response was:"
-  echo "$add_result"
-  return 1
+  echo "Successfully re-cycled volume ${vol_name}"
+  return 0
 }
 
 recycle_volume() {
@@ -267,6 +259,7 @@ recycle_volume() {
   local vol_name
   local vol_path
   local vol_endpoints
+  local vol_phase
   local vol_isgluster
   local vol_message
   local vol_failed_at
@@ -335,14 +328,11 @@ recycle_volume() {
           }
         }
       }')
-      local patch_result
 
       echo "Annotating ${vol_name} as failed at ${failed_at}"
 
-      patch_result=$(api_call PATCH "/api/v1/persistentvolumes/${vol_name}" "$patch" application/strategic-merge-patch+json)
-      if [[ "$?" != 0 ]]; then
-        echo "Couldn't annotate ${vol_name} with failed timestamp. The response was:"
-        echo "$patch_result"
+      if ! api_call PATCH "/api/v1/persistentvolumes/${vol_name}" "$patch" application/strategic-merge-patch+json; then
+        echo "Annotating ${vol_name} with failure timestamp failed"
         return 1
       fi
 
@@ -364,30 +354,25 @@ recycle_volume() {
   elif [[ -n "$GLUSTER_OBJECT_NAMESPACE" ]]; then
     local gluster_endpoints_json
 
-    gluster_endpoints_json=$(api_call GET "/api/v1/namespaces/${GLUSTER_OBJECT_NAMESPACE}/endpoints/${vol_endpoints}")
-    if [[ "$?" != 0 ]]; then
-      echo "Couldn't get endpoint object \"${vol_endpoints}\" from namespace \"${GLUSTER_OBJECT_NAMESPACE}\":"
-      echo "$gluster_endpoints_json"
+    if ! gluster_endpoints_json=$(
+      api_call GET "/api/v1/namespaces/${GLUSTER_OBJECT_NAMESPACE}/endpoints/${vol_endpoints}"
+      )
+    then
+      echo "Retrieving endpoint object \"${vol_endpoints}\" from namespace \"${GLUSTER_OBJECT_NAMESPACE}\" failed" >&2
       return 1
     fi
 
-    gluster_endpoints=$(
+    if ! gluster_endpoints=$(
       echo "$gluster_endpoints_json" | \
       jq -r '[.subsets[].addresses[].ip] | select(.) | sort | join(",")'
       )
-    if [[ "$?" != 0 ]]; then
-      echo "Failed to extract endpoints:"
-      echo "$gluster_endpoints_json"
+    then
+      echo 'Failed to extract endpoints' >&2
       return 1
     fi
   else
-    echo 'Storage servers not specified'
+    echo 'Storage servers not specified' >&2
     return 1
-  fi
-
-  # mount the volume
-  if is_debug; then
-    echo "Mounting volume: mount.glusterfs \"${gluster_endpoints}:${vol_path}\" \"${mountdir}\""
   fi
 
   if [[ ! -d "$mountdir" ]]; then
@@ -399,10 +384,19 @@ recycle_volume() {
   # Clear logfile
   :>"$logfile"
 
-  mount.glusterfs "${gluster_endpoints}:${vol_path}" "$mountdir" \
-    -o log-level=INFO,log-file="${logfile}"
-  if [[ "$?" != "0" ]]; then
-    echo "ERROR: Unable to mount the volume"
+  local mountcmd
+
+  mountcmd=(
+    mount.glusterfs "${gluster_endpoints}:${vol_path}" "$mountdir"
+      -o log-level=INFO,log-file="${logfile}"
+    )
+
+  if is_debug; then
+    echo 'Mount command:' "${mountcmd[@]}"
+  fi
+
+  if ! "${mountcmd[@]}"; then
+    echo "Unable to mount volume ${vol_name}"
     cat "$logfile"
     return 1
   fi
@@ -429,46 +423,63 @@ recycle_volume() {
   [[ -z "$failed" ]]
 }
 
-exit_status=0
+timeout_recycle=
 
-while true; do
-  # Get a list of physical volumes and their status
-  is_debug && echo "Getting a list of persistentvolumes..."
-  vol_list=$(api_call GET /api/v1/persistentvolumes)
-  if [ "$?" -ne "0" ]; then
-    echo "ERROR! Could not get list of volumes from the API!"
-    sleep 60
-    exit 1
+if pod_spec=$(api_call GET "/api/v1/namespaces/${POD_NAMESPACE}/pods/${POD_NAME}") &&
+   active_deadline_seconds=$(jq --exit-status -r '.spec?.activeDeadlineSeconds' <<<"$pod_spec")
+then
+  echo "Active deadline: ${active_deadline_seconds}s"
+
+  # Consider overhead and keep enough time to finish a full deletion
+  timeout_recycle=$(( (active_deadline_seconds * 8 / 10) - TIMEOUT_DELETE ))
+
+  if (( timeout_recycle < 0 )); then
+    echo 'Calculated recycle timeout is negative, falling back to default' >&2
+    timeout_recycle=
+  fi
+else
+  echo 'Retrieving pod object failed, using default recycle timeout'
+fi
+
+if [[ -z "$timeout_recycle" ]]; then
+  timeout_recycle=$(( 55 * 60 ))
+fi
+
+echo "Recycle timeout: ${timeout_recycle}s"
+
+# Get a list of physical volumes and their status
+if ! vol_list=$(api_call GET /api/v1/persistentvolumes); then
+  echo 'Retrieving list of volumes failed'
+  exit 1
+fi
+
+echo "$vol_list" | \
+  jq -r '.items | map(select(.status.phase == "Failed" or .status.phase == "Released"))' \
+  > "${tmpdir}/failed.json"
+
+num_vols=$(jq -r length < "${tmpdir}/failed.json")
+
+echo "${num_vols} failed volumes found"
+
+exit_status=0
+start_time=$SECONDS
+
+# interate over the persistent volumes a volume at a time
+for i in $(seq 0 $((num_vols - 1))); do
+  jq -r --argjson idx "$i" '.[$idx]' \
+    < "${tmpdir}/failed.json" \
+    > "${tmpdir}/volume.json"
+
+  if ! recycle_volume "${tmpdir}/volume.json"; then
+    exit_status=1
   fi
 
-  is_debug && echo "result of api call: $vol_list"
-
-  echo "$vol_list" | \
-    jq -r '.items | map(select(.status.phase == "Failed" or .status.phase == "Released"))' \
-    > "${tmpdir}/failed.json"
-
-  num_vols=$(jq -r length < "${tmpdir}/failed.json")
-
-  echo "$(date -Is): ${num_vols} failed volumes found"
-
-  # interate over the persistent volumes a volume at a time
-  for i in $(seq 0 $((num_vols - 1))); do
-    jq -r --argjson idx "$i" '.[$idx]' \
-      < "${tmpdir}/failed.json" \
-      > "${tmpdir}/volume.json"
-
-    if ! recycle_volume "${tmpdir}/volume.json"; then
-      exit_status=1
-    fi
-  done
-  echo "Finished recycle run"
-
-  if is_oneshot; then
+  passed=$(( SECONDS - start_time ))
+  if (( passed > timeout_recycle )); then
+    echo "Stopping recycling after ${passed} seconds" >&2
     break
   fi
-
-  # Wait for next iteration
-  sleep $INTERVAL
 done
+echo 'Finished recycle run'
 
 exit "$exit_status"
