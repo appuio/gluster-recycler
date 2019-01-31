@@ -76,8 +76,6 @@ objects:
               image: ${IMAGE}
               imagePullPolicy: IfNotPresent
               env:
-              - name: ONESHOT
-                value: "true"
               - name: DELAY
                 value: ${DELAY}
               - name: CLUSTER

@@ -15,7 +15,6 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 #
-# In an endless loop: -
 # Retrieves a list of persistentvolumes from kubernetes and for each glusterfs volume in a failed state:
 #  mount volume
 #  remove all contents
@@ -25,10 +24,8 @@
 # Inputs are ENVIRONMENT VARIABLES
 #
 # CLUSTER - the address string of the gluster cluster
-# INTERVAL - the pause between recyle runs in seconds (default 5 minutes)
 # DELAY - number of seconds to delay recycling after pv has first been seen in failed state
 # DEBUG - set to 'true' to enable detailed logging.
-# ONESHOT - set to 'true' to exit after one iteration
 
 ANNOTATION_FAILED_AT=appuio.ch/failed-at
 SECRETS_DIR=/recycler-secrets
@@ -38,10 +35,6 @@ if [[ ! $DELAY =~ [0-9]+ ]]; then
   DELAY="0"
   echo "DELAY is not a number, ignoring!" >&2
 fi
-
-is_oneshot() {
-  [[ "$ONESHOT" == true ]]
-}
 
 is_debug() {
   [[ "$DEBUG" == true ]]
@@ -118,10 +111,6 @@ else
   rm -f /var/lib/glusterd/secure-access
 fi
 
-# INTERVAL defaults to 5 minutes
-[[ "$INTERVAL" == "" ]] && INTERVAL=300
-
-echo "checking for failed volumes every ${INTERVAL} seconds"
 echo "delaying recycling of failed volumes for ${DELAY} seconds"
 echo
 
@@ -430,46 +419,37 @@ recycle_volume() {
   [[ -z "$failed" ]]
 }
 
+# Get a list of physical volumes and their status
+is_debug && echo "Getting a list of persistentvolumes..."
+vol_list=$(api_call GET /api/v1/persistentvolumes)
+if [ "$?" -ne "0" ]; then
+  echo "ERROR! Could not get list of volumes from the API!"
+  sleep 60
+  exit 1
+fi
+
+is_debug && echo "result of api call: $vol_list"
+
+echo "$vol_list" | \
+  jq -r '.items | map(select(.status.phase == "Failed" or .status.phase == "Released"))' \
+  > "${tmpdir}/failed.json"
+
+num_vols=$(jq -r length < "${tmpdir}/failed.json")
+
+echo "$(date -Is): ${num_vols} failed volumes found"
+
 exit_status=0
 
-while true; do
-  # Get a list of physical volumes and their status
-  is_debug && echo "Getting a list of persistentvolumes..."
-  vol_list=$(api_call GET /api/v1/persistentvolumes)
-  if [ "$?" -ne "0" ]; then
-    echo "ERROR! Could not get list of volumes from the API!"
-    sleep 60
-    exit 1
+# interate over the persistent volumes a volume at a time
+for i in $(seq 0 $((num_vols - 1))); do
+  jq -r --argjson idx "$i" '.[$idx]' \
+    < "${tmpdir}/failed.json" \
+    > "${tmpdir}/volume.json"
+
+  if ! recycle_volume "${tmpdir}/volume.json"; then
+    exit_status=1
   fi
-
-  is_debug && echo "result of api call: $vol_list"
-
-  echo "$vol_list" | \
-    jq -r '.items | map(select(.status.phase == "Failed" or .status.phase == "Released"))' \
-    > "${tmpdir}/failed.json"
-
-  num_vols=$(jq -r length < "${tmpdir}/failed.json")
-
-  echo "$(date -Is): ${num_vols} failed volumes found"
-
-  # interate over the persistent volumes a volume at a time
-  for i in $(seq 0 $((num_vols - 1))); do
-    jq -r --argjson idx "$i" '.[$idx]' \
-      < "${tmpdir}/failed.json" \
-      > "${tmpdir}/volume.json"
-
-    if ! recycle_volume "${tmpdir}/volume.json"; then
-      exit_status=1
-    fi
-  done
-  echo "Finished recycle run"
-
-  if is_oneshot; then
-    break
-  fi
-
-  # Wait for next iteration
-  sleep $INTERVAL
 done
+echo "Finished recycle run"
 
 exit "$exit_status"
