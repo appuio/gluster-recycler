@@ -31,10 +31,20 @@
 ANNOTATION_FAILED_AT=appuio.ch/failed-at
 SECRETS_DIR=/recycler-secrets
 
+is_number() {
+  [[ "$1" =~ ^[0-9]+$ ]]
+}
+
 DELAY="${DELAY:-0}"
-if [[ ! $DELAY =~ [0-9]+ ]]; then
+if ! is_number "$DELAY"; then
   DELAY="0"
   echo "DELAY is not a number, ignoring!" >&2
+fi
+
+: "${TIMEOUT_DELETE:=600}"
+if ! is_number "$TIMEOUT_DELETE"; then
+  echo "TIMEOUT_DELETE is not a number: ${TIMEOUT_DELETE}" >&2
+  exit 1
 fi
 
 is_debug() {
@@ -184,8 +194,8 @@ clear_volume() {
   fi
 
   # delete all the files with -mindepth 1 so we don't try and remove the mount directory
-  if ! find "$path" -mindepth 1 -not -path "${path}/.trashcan/*" -delete; then
-    echo Removing volume content failed
+  if ! timeout "${TIMEOUT_DELETE}s" find "$path" -mindepth 1 -not -path "${path}/.trashcan/*" -delete; then
+    echo "Removing volume content failed (timeout ${TIMEOUT_DELETE}s)"
     return 1
   fi
 
@@ -426,6 +436,30 @@ recycle_volume() {
   [[ -z "$failed" ]]
 }
 
+timeout_recycle=
+
+if pod_spec=$(api_call GET "/api/v1/namespaces/${POD_NAMESPACE}/pods/${POD_NAME}") &&
+   active_deadline_seconds=$(jq --exit-status -r '.spec?.activeDeadlineSeconds' <<<"$pod_spec")
+then
+  echo "Active deadline: ${active_deadline_seconds}s"
+
+  # Consider overhead and keep enough time to finish a full deletion
+  timeout_recycle=$(( (active_deadline_seconds * 8 / 10) - TIMEOUT_DELETE ))
+
+  if (( timeout_recycle < 0 )); then
+    echo 'Calculated recycle timeout is negative, falling back to default' >&2
+    timeout_recycle=
+  fi
+else
+  echo 'Retrieving pod object failed, using default recycle timeout'
+fi
+
+if [[ -z "$timeout_recycle" ]]; then
+  timeout_recycle=$(( 55 * 60 ))
+fi
+
+echo "Recycle timeout: ${timeout_recycle}s"
+
 # Get a list of physical volumes and their status
 if ! vol_list=$(api_call GET /api/v1/persistentvolumes); then
   echo 'Retrieving list of volumes failed'
@@ -441,6 +475,7 @@ num_vols=$(jq -r length < "${tmpdir}/failed.json")
 echo "${num_vols} failed volumes found"
 
 exit_status=0
+start_time=$SECONDS
 
 # interate over the persistent volumes a volume at a time
 for i in $(seq 0 $((num_vols - 1))); do
@@ -450,6 +485,12 @@ for i in $(seq 0 $((num_vols - 1))); do
 
   if ! recycle_volume "${tmpdir}/volume.json"; then
     exit_status=1
+  fi
+
+  passed=$(( SECONDS - start_time ))
+  if (( passed > timeout_recycle )); then
+    echo "Stopping recycling after ${passed} seconds" >&2
+    break
   fi
 done
 echo 'Finished recycle run'
