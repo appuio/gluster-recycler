@@ -86,7 +86,7 @@ else
 fi
 
 #API
-CURL=( curl -s -H "Authorization: bearer $KUBE_TOKEN" "${CAOPTS[@]}" )
+CURL=( curl -s -H "Authorization: bearer $KUBE_TOKEN" "${CAOPTS[@]}" --max-time 60 )
 HOSTURL="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
 
 # Permit separating Gluster hosts with both ";" and "," (Gluster FUSE requires
