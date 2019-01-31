@@ -234,6 +234,9 @@ recreate_volume() {
     echo "Deleting ${vol_name}"
   fi
 
+  # FIXME: Recreating a volume is non-atomic. If the recycler is terminated at
+  # an inopportune time at least one persistent volume object disappears.
+
   if ! delete_result=$(api_call DELETE "/api/v1/persistentvolumes/${vol_name}"); then
     echo "Deleting volume ${vol_name} failed" >&2
     return 1
