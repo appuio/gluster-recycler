@@ -70,19 +70,17 @@ fi
 
 # Select the ca options for curling the Kubernetes API
 k8s_cacert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-if [[ -e "$k8s_cacert" ]]; then
-  CAOPTS=( --cacert "$k8s_cacert" )
-  if is_debug; then
-    {
-      echo "Using ${k8s_cacert} as CA file:"
-      cat $k8s_cacert
-    } >&2
-  fi
-else
-  if is_debug; then
-    echo "Could not find ${k8s_cacert}, disabling certificate validation" >&2
-  fi
-  CAOPTS=( -k )
+if ! [[ -e "$k8s_cacert" ]]; then
+  echo "Could not find ${k8s_cacert}" >&2
+  exit 1
+fi
+
+CAOPTS=( --cacert "$k8s_cacert" )
+if is_debug; then
+  {
+    echo "Using ${k8s_cacert} as CA file:"
+    cat $k8s_cacert
+  } >&2
 fi
 
 #API
