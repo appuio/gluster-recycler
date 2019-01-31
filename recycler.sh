@@ -185,7 +185,7 @@ clear_volume() {
   fi
 
   # delete all the files with -mindepth 1 so we don't try and remove the mount directory
-  find "$path" -mindepth 1 -not -path "${path}/.trashcan*" -delete
+  find "$path" -mindepth 1 -not -path "${path}/.trashcan/*" -delete
   if [[ "$?" != 0 ]]; then
     echo "ERROR: We could not remove all of the files in this volume!"
     return 1
