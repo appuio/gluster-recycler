@@ -59,7 +59,7 @@ objects:
     failedJobsHistoryLimit: 3
     successfulJobsHistoryLimit: 3
     concurrencyPolicy: Forbid
-    startingDeadlineSeconds: 86400
+    startingDeadlineSeconds: 3600
     jobTemplate:
       spec:
         activeDeadlineSeconds: 7200
