@@ -23,6 +23,9 @@ objects:
   apiVersion: v1
   metadata:
     name: gluster-recycler
+    annotations:
+      openshift.io/description: >-
+        Cluster-wide Gluster recycler permissions
   rules:
   - verbs:
     - create
@@ -32,14 +35,16 @@ objects:
     - replace
     - update
     - patch
-    attributeRestrictions:
+    attributeRestrictions: null
     apiGroups:
+    - ""
     resources:
     - persistentvolumes
   - verbs:
     - get
-    attributeRestrictions:
+    attributeRestrictions: null
     apiGroups:
+    - ""
     resources:
     - endpoints
 
@@ -50,7 +55,6 @@ objects:
   data: {}
 
 - apiVersion: v1
-  groupNames: null
   kind: ClusterRoleBinding
   metadata:
     name: gluster-recycler
@@ -62,3 +66,4 @@ objects:
     namespace: ${NAMESPACE}
   userNames:
   - system:serviceaccount:${NAMESPACE}:gluster-recycler
+  groupNames: null
