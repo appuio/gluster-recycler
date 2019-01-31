@@ -267,6 +267,7 @@ recycle_volume() {
   local vol_name
   local vol_path
   local vol_endpoints
+  local vol_phase
   local vol_isgluster
   local vol_message
   local vol_failed_at
