@@ -234,17 +234,8 @@ recreate_volume() {
     echo "Deleting ${vol_name}"
   fi
 
-  if ! delete_result=$(api_call DELETE "/api/v1/persistentvolumes/${vol_name}"); then
-    echo "Deleting volume ${vol_name} failed" >&2
-    return 1
-  fi
-
-  if is_debug; then
-    echo "result of api call: $delete_result"
-  fi
-
-  # re-create the object
-  if ! add_result=$(api_call POST /api/v1/persistentvolumes "@${vol_def}"); then
+  # Replace object
+  if ! api_call PUT "/api/v1/persistentvolumes/${vol_name}" "@${vol_def}"; then
     echo "Re-creating volume ${vol_name} failed"
     return 1
   fi
