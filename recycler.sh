@@ -194,7 +194,7 @@ clear_volume() {
   fi
 
   # delete all the files with -mindepth 1 so we don't try and remove the mount directory
-  if ! timeout "${TIMEOUT_DELETE}s" find "$path" -mindepth 1 -not -path "${path}/.trashcan/*" -delete; then
+  if ! timeout "${TIMEOUT_DELETE}s" find "$path" -mindepth 1 -not \( -path "${path}/.trashcan" -or -path "${path}/.trashcan/*" \) -delete; then
     echo "Removing volume content failed (timeout ${TIMEOUT_DELETE}s)"
     return 1
   fi
