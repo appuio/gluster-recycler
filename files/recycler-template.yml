@@ -68,7 +68,6 @@ objects:
   kind: Secret
   metadata:
     name: gluster-recycler
-  data: {}
 
 - apiVersion: v1
   kind: ClusterRoleBinding
