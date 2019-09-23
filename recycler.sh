@@ -267,7 +267,7 @@ volume_is_used() {
     awk '/^fuse\s+[[:digit:]]+$/{print $2}')"
 
   # if not mounted, nfuse should be empty (which is `-eq` to 0)
-  if [ "$nfuse" -eq 0 ]; then
+  if [[ "$nfuse" -eq 0 ]]; then
     return 0
   fi
 
