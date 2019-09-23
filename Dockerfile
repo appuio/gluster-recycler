@@ -14,7 +14,7 @@ RUN \
     PRE_INSTALL_PKG="${PRE_INSTALL_PKG} centos-release-gluster5"; \
   fi && \
   yum install -y --setopt=tsflags=nodocs $PRE_INSTALL_PKG && \
-  INSTALL_PKGS="bash tar jq findutils which glusterfs-fuse" && \
+  INSTALL_PKGS="bash tar jq findutils which glusterfs-fuse glusterfs-cli" && \
   yum install -y --setopt=tsflags=nodocs $INSTALL_PKGS && \
   rpm -V $INSTALL_PKGS && \
   yum clean all

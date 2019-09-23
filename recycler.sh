@@ -254,6 +254,25 @@ recreate_volume() {
   return 0
 }
 
+# Verifies that no fuse clients are connected to the volume given
+#
+# $1 - list of gluster endpoints
+# $2 - name of the volume
+volume_is_used() {
+  local rhost="${1%%,*}"  # extract the first entry
+  local vol_name="$2"
+  gluster --remote-host="$rhost" --mode=script \
+    volume status "$vol_name" client-list | \
+    awk '/^glustershd\s/{ next; } /^\w+\s+[[:digit:]]+$/{print $2}' | \
+    while read -r n; do
+      if [[ "$n" -ne "0" ]]; then
+        return 0
+      fi
+    done
+
+  return 1
+}
+
 recycle_volume() {
   local volfile="$1"
   local vol_name
@@ -372,6 +391,12 @@ recycle_volume() {
     fi
   else
     echo 'Storage servers not specified' >&2
+    return 1
+  fi
+
+  # Check whether others are mounting this PV
+  if volume_is_used "$gluster_endpoints" "$vol_name"; then
+    echo "Volume $vol_name is mounted somewhere, skipping"
     return 1
   fi
 

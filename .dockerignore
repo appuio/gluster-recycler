@@ -1,0 +1,8 @@
+/.git/
+/Dockerfile
+/README.*
+/defaults/
+/files/
+/meta/
+/playbook.yml
+/tasks/
