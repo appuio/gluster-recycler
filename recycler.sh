@@ -261,15 +261,14 @@ recreate_volume() {
 volume_is_used() {
   local rhost="${1%%,*}"  # extract the first entry
   local vol_name="$2"
-  nfuse="$(
-    gluster --remote-host="$rhost" --mode=script \
-      volume status "$vol_name" client-list | \
-    awk '/^fuse\s+[[:digit:]]+$/{print $2}')"
-
-  # if not mounted, nfuse should be empty (which is `-eq` to 0)
-  if [[ "$nfuse" -eq 0 ]]; then
-    return 0
-  fi
+  gluster --remote-host="$rhost" --mode=script \
+    volume status "$vol_name" client-list | \
+    awk '/^glustershd\s/{ next; } /^\w+\s+[[:digit:]]+$/{print $2}' | \
+    while read -r n; do
+      if [[ "$n" -ne "0" ]]; then
+        return 0
+      fi
+    done
 
   return 1
 }
