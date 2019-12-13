@@ -214,6 +214,12 @@ clear_volume() {
     return 1
   fi
 
+  # reset SELinux context
+  if ! chcon 'system_u:object_r:unlabeled_t:s0' "$path"; then
+    echo Resetting SELinux context failed
+    return 1
+  fi
+
   return 0
 }
 
