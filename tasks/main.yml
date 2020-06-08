@@ -87,7 +87,7 @@
 
     - name: Remove recycler objects
       vars:
-        r_obj: "{{ r_delete_objects | difference(r_selected.required_objects) }}"
+        r_obj: "{{ (r_delete_objects | difference(r_selected.required_objects))|bool }}"
       when: r_obj
       command: >-
         oc -n {{ appuio_gluster_recycler_namespace | quote }}
