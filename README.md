@@ -48,8 +48,8 @@ finds on the volumes which it is recycling.
 
 ## Requirements
 
-* OpenShift Container Platform 3.7 or later
-* OpenShift Origin 3.7 or later
+* OpenShift Container Platform 3.9 or later
+* OpenShift Origin 3.9 or later
 
 
 ## Role Variables
