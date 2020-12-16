@@ -8,10 +8,10 @@ RUN \
     extrapkg=http://mirror.centos.org/centos/7/extras/x86_64/Packages && \
     PRE_INSTALL_PKG="${PRE_INSTALL_PKG} \
       ${extrapkg}/centos-release-storage-common-2-2.el7.centos.noarch.rpm \
-      ${extrapkg}/centos-release-gluster5-1.0-1.el7.centos.noarch.rpm \
+      ${extrapkg}/centos-release-gluster7-1.0-2.el7.centos.noarch.rpm \
       "; \
   else \
-    PRE_INSTALL_PKG="${PRE_INSTALL_PKG} centos-release-gluster5"; \
+    PRE_INSTALL_PKG="${PRE_INSTALL_PKG} centos-release-gluster7"; \
   fi && \
   yum install -y --setopt=tsflags=nodocs $PRE_INSTALL_PKG && \
   INSTALL_PKGS="bash tar jq findutils which glusterfs-fuse glusterfs-cli" && \
